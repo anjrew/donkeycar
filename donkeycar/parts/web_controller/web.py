@@ -38,6 +38,7 @@ def _default_tuning():
         'pid_p': 0.0, 'pid_i': 0.0, 'pid_d': 0.0,
         'throttle_min': 0.0, 'throttle_max': 1.0,
         'scan_y': 0, 'scan_height': 0,
+        'steering_left_pwm': 0, 'steering_right_pwm': 0,
     }
 
 
@@ -97,6 +98,13 @@ def _validate_tuning_patch(patch, current):
                     reject(k, 'negative')
                     continue
                 clean[k] = iv
+            elif k in ('steering_left_pwm', 'steering_right_pwm'):
+                iv = int(v)
+                # PCA9685 12-bit values: 0..4095. Reject anything outside.
+                if not (0 <= iv <= 4095):
+                    reject(k, 'out of range 0..4095')
+                    continue
+                clean[k] = iv
             else:
                 reject(k, 'unknown key')
         except (TypeError, ValueError) as exc:
@@ -133,6 +141,10 @@ def _render_myconfig_snippet(t):
         f'THROTTLE_MAX = {t["throttle_max"]!r}',
         f'SCAN_Y = {int(t["scan_y"])}',
         f'SCAN_HEIGHT = {int(t["scan_height"])}',
+        '',
+        '# Update these inside the PWM_STEERING_THROTTLE dict in myconfig.py:',
+        f'#   "STEERING_LEFT_PWM":  {int(t["steering_left_pwm"])},',
+        f'#   "STEERING_RIGHT_PWM": {int(t["steering_right_pwm"])},',
         '',
     ]
     return '\n'.join(lines)
@@ -283,10 +295,14 @@ class LocalWebController(tornado.web.Application):
                                    exc_info=e)
                     pass
 
-    def apply_tuning_patch(self, patch):
+    def apply_tuning_patch(self, patch, origin=None):
         """
         Validate, commit, and broadcast a tuning patch. Invokes registered
         tuning_listeners with the full snapshot. Returns the rejections list.
+
+        `origin`, when set, is the WebSocket handler that sent the patch;
+        the broadcast skips it so a slider drag doesn't echo back and
+        snap the live drag handle to the just-committed value.
         """
         clean, rejections = _validate_tuning_patch(patch, self.tuning)
         logger.info("[tuning] apply_patch in=%s clean=%s rej=%s",
@@ -302,14 +318,16 @@ class LocalWebController(tornado.web.Application):
                     listener(self.tuning)
                 except Exception as e:
                     logger.warning("Tuning listener raised", exc_info=e)
-            self.broadcast_tuning()
+            self.broadcast_tuning(skip=origin)
         return rejections
 
-    def broadcast_tuning(self):
+    def broadcast_tuning(self, skip=None):
         msg = json.dumps({'type': 'snapshot',
                           'tuning': self.tuning,
                           'seq': self.tuning_seq})
         for client in list(self.wsTuningClients):
+            if client is skip:
+                continue
             try:
                 client.write_message(msg)
             except Exception as e:
@@ -496,7 +514,7 @@ class WebSocketTuningAPI(tornado.websocket.WebSocketHandler):
             logger.warning("[tuning] malformed JSON: %s", message[:100])
             return
         patch = data.get('set') or {}
-        rejections = self.application.apply_tuning_patch(patch)
+        rejections = self.application.apply_tuning_patch(patch, origin=self)
         if rejections:
             logger.info("[tuning] rejections: %s", rejections)
             try:

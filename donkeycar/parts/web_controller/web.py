@@ -29,7 +29,8 @@ from ... import utils
 logger = logging.getLogger(__name__)
 
 
-_LINE_FOLLOWER_MODES = ('center_line', 'center_line_with_angle', 'two_edges')
+_LINE_FOLLOWER_MODES = ('center_line', 'center_line_with_angle',
+                        'two_edges', 'two_contours')
 
 
 def _default_tuning():

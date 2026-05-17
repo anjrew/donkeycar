@@ -53,6 +53,8 @@ var driveHandler = new function() {
         throttle_min: 0.0, throttle_max: 1.0,
         scan_y: 0, scan_height: 0,
         steering_left_pwm: 0, steering_right_pwm: 0,
+        line_follower_mode: 'center_line',
+        half_track_width_px: 80,
     };
 
     this.load = function() {
@@ -320,6 +322,17 @@ var driveHandler = new function() {
         setTimeout(function() { $el.text(''); }, 2000);
     }
 
+    // Show only the fieldsets whose data-modes attribute lists `mode`.
+    // Fieldsets without data-modes (none today) are left untouched.
+    function applyModeVisibility(mode) {
+        var nodes = document.querySelectorAll('[data-modes]');
+        for (var i = 0; i < nodes.length; i++) {
+            var el = nodes[i];
+            var allowed = (el.dataset.modes || '').split(/\s+/);
+            el.style.display = allowed.indexOf(mode) >= 0 ? '' : 'none';
+        }
+    }
+
     function paintTuningUI() {
         console.log('[tuning] paintTuningUI state=', JSON.stringify(tuningState));
         var painted = 0;
@@ -357,8 +370,9 @@ var driveHandler = new function() {
             });
         });
 
-        // Scan + throttle (scalar sliders)
-        ['scan_y', 'scan_height', 'throttle_min', 'throttle_max'].forEach(function(key) {
+        // Scan + throttle + half-track-width (scalar sliders)
+        ['scan_y', 'scan_height', 'throttle_min', 'throttle_max',
+         'half_track_width_px'].forEach(function(key) {
             var v = tuningState[key];
             if (v === null || v === undefined) {
                 console.warn('[tuning] paint skipped key=', key, 'value=', v);
@@ -392,7 +406,26 @@ var driveHandler = new function() {
             $el.val(v);
             painted++;
         });
-        console.log('[tuning] paintTuningUI painted', painted, 'fields');
+
+        // Mode selector: paint the active radio (Bootstrap label needs the
+        // 'active' class too) and toggle fieldset visibility. Skip if the
+        // operator is currently clicking a radio (active focus).
+        var mode = tuningState.line_follower_mode || 'center_line';
+        var $radios = $('#tune_mode_group input[name="tune_mode"]');
+        var focusedInGroup = $(document.activeElement)
+            .closest('#tune_mode_group').length > 0;
+        if ($radios.length && !focusedInGroup) {
+            $radios.each(function() {
+                var $r = $(this);
+                var match = $r.val() === mode;
+                $r.prop('checked', match);
+                $r.closest('label').toggleClass('active', match);
+            });
+        }
+        applyModeVisibility(mode);
+        painted++;
+
+        console.log('[tuning] paintTuningUI painted', painted, 'fields, mode=', mode);
     }
 
     function bindTuningSliders() {
@@ -430,13 +463,14 @@ var driveHandler = new function() {
         });
         console.log('[tuning] bindTuningSliders: bound', bound, 'HSV sliders');
 
-        // Scan region + throttle limits (range sliders, scalar values).
+        // Scan region + throttle limits + half-track-width (range sliders).
         var scalarBound = 0;
         [
-            {id: 'tune_scan_y',        key: 'scan_y',        parse: parseInt},
-            {id: 'tune_scan_height',   key: 'scan_height',   parse: parseInt},
-            {id: 'tune_throttle_min',  key: 'throttle_min',  parse: parseFloat},
-            {id: 'tune_throttle_max',  key: 'throttle_max',  parse: parseFloat},
+            {id: 'tune_scan_y',              key: 'scan_y',              parse: function(s) { return parseInt(s, 10); }},
+            {id: 'tune_scan_height',         key: 'scan_height',         parse: function(s) { return parseInt(s, 10); }},
+            {id: 'tune_throttle_min',        key: 'throttle_min',        parse: parseFloat},
+            {id: 'tune_throttle_max',        key: 'throttle_max',        parse: parseFloat},
+            {id: 'tune_half_track_width_px', key: 'half_track_width_px', parse: function(s) { return parseInt(s, 10); }},
         ].forEach(function(s) {
             var $el = $('#' + s.id);
             if (!$el.length) {
@@ -494,6 +528,18 @@ var driveHandler = new function() {
             $el.on('change', function() { commit.call(this, true); });
         });
         console.log('[tuning] bound', numBound, 'numeric inputs');
+
+        // Mode selector radios — send the chosen mode and locally apply
+        // visibility immediately. Server will broadcast back the snapshot
+        // for any other connected client, but our own paint is suppressed
+        // by the focusedInGroup guard so the user's click doesn't bounce.
+        $('#tune_mode_group input[name="tune_mode"]').on('change', function() {
+            var mode = this.value;
+            console.log('[tuning] mode change ->', mode);
+            tuningState.line_follower_mode = mode;
+            applyModeVisibility(mode);
+            sendTuningPatch({line_follower_mode: mode});
+        });
     }
 
 

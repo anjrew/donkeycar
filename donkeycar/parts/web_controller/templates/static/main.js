@@ -58,14 +58,30 @@ var driveHandler = new function() {
       driveURL = '/drive'
       socket = new WebSocket('ws://' + location.host + '/wsDrive');
       tuningSocket = new WebSocket('ws://' + location.host + '/wsTuning');
+      console.log('[tuning] socket constructed, state=', tuningSocket.readyState);
+      tuningSocket.onopen = function() {
+          console.log('[tuning] socket OPEN');
+      };
+      tuningSocket.onerror = function(e) {
+          console.error('[tuning] socket ERROR', e);
+      };
+      tuningSocket.onclose = function(e) {
+          console.warn('[tuning] socket CLOSED', e.code, e.reason);
+      };
       tuningSocket.onmessage = function(evt) {
+          console.log('[tuning] recv:', evt.data.substring(0, 200));
           var msg;
-          try { msg = JSON.parse(evt.data); } catch (e) { return; }
+          try { msg = JSON.parse(evt.data); } catch (e) {
+              console.error('[tuning] bad JSON', e);
+              return;
+          }
           if (msg.type === 'snapshot' && msg.tuning) {
               Object.assign(tuningState, msg.tuning);
+              console.log('[tuning] snapshot applied, painting UI');
               paintTuningUI();
           } else if (msg.type === 'rejected') {
-              flashTuningStatus('rejected: ' + msg.rejections.map(r => r.key).join(', '), true);
+              console.warn('[tuning] server rejected', msg.rejections);
+              flashTuningStatus('rejected: ' + msg.rejections.map(function(r){return r.key;}).join(', '), true);
           }
       };
 
@@ -232,8 +248,12 @@ var driveHandler = new function() {
     };
 
     function sendTuningPatch(patch) {
+        var state = tuningSocket ? tuningSocket.readyState : 'no-socket';
+        console.log('[tuning] sendTuningPatch state=', state, 'patch=', patch);
         if (tuningSocket && tuningSocket.readyState === 1) {
             tuningSocket.send(JSON.stringify({ set: patch }));
+        } else {
+            console.warn('[tuning] DROPPED patch: socket not OPEN (state=' + state + ')');
         }
     }
 
@@ -255,6 +275,7 @@ var driveHandler = new function() {
     }
 
     function paintTuningUI() {
+        console.log('[tuning] paintTuningUI', tuningState);
         // HSV sliders
         ['center', 'edge'].forEach(function(group) {
             ['low', 'high'].forEach(function(bound) {
@@ -281,14 +302,22 @@ var driveHandler = new function() {
 
     function bindTuningSliders() {
         var sendDebounced = debounce(sendTuningPatch, 100);
+        var bound = 0;
 
         // HSV sliders write into 3-element arrays.
         ['center', 'edge'].forEach(function(group) {
-            ['low', 'high'].forEach(function(bound) {
-                var key = 'hsv_' + group + '_' + bound;
+            ['low', 'high'].forEach(function(boundName) {
+                var key = 'hsv_' + group + '_' + boundName;
                 ['h', 's', 'v'].forEach(function(ch, idx) {
-                    var id = 'tune_hsv_' + group + '_' + ch + '_' + bound;
-                    $('#' + id).on('input', function() {
+                    var id = 'tune_hsv_' + group + '_' + ch + '_' + boundName;
+                    var $el = $('#' + id);
+                    if (!$el.length) {
+                        console.warn('[tuning] slider element missing:', id);
+                        return;
+                    }
+                    bound++;
+                    $el.on('input', function() {
+                        console.log('[tuning] input fired on', id, 'value=', this.value);
                         var v = parseInt(this.value, 10);
                         if (isNaN(v)) return;
                         // Clone before mutating so we always send a fresh
@@ -304,15 +333,24 @@ var driveHandler = new function() {
                 });
             });
         });
+        console.log('[tuning] bindTuningSliders: bound', bound, 'HSV sliders');
 
         // Scan region + throttle limits (range sliders, scalar values).
+        var scalarBound = 0;
         [
             {id: 'tune_scan_y',        key: 'scan_y',        parse: parseInt},
             {id: 'tune_scan_height',   key: 'scan_height',   parse: parseInt},
             {id: 'tune_throttle_min',  key: 'throttle_min',  parse: parseFloat},
             {id: 'tune_throttle_max',  key: 'throttle_max',  parse: parseFloat},
         ].forEach(function(s) {
-            $('#' + s.id).on('input', function() {
+            var $el = $('#' + s.id);
+            if (!$el.length) {
+                console.warn('[tuning] slider missing:', s.id);
+                return;
+            }
+            scalarBound++;
+            $el.on('input', function() {
+                console.log('[tuning] input fired on', s.id, 'value=', this.value);
                 var v = s.parse(this.value);
                 if (isNaN(v)) return;
                 tuningState[s.key] = v;
@@ -322,11 +360,20 @@ var driveHandler = new function() {
                 sendDebounced(patch);
             });
         });
+        console.log('[tuning] bound', scalarBound, 'scalar sliders');
 
         // PID numeric inputs — fire on 'change' (commit on blur / Enter)
         // rather than 'input' so partial typing doesn't push noise.
+        var pidBound = 0;
         ['pid_p', 'pid_i', 'pid_d'].forEach(function(key) {
-            $('#tune_' + key).on('change', function() {
+            var $el = $('#tune_' + key);
+            if (!$el.length) {
+                console.warn('[tuning] PID input missing:', 'tune_' + key);
+                return;
+            }
+            pidBound++;
+            $el.on('change', function() {
+                console.log('[tuning] PID change', key, 'value=', this.value);
                 var v = parseFloat(this.value);
                 if (isNaN(v)) return;
                 tuningState[key] = v;
@@ -335,6 +382,7 @@ var driveHandler = new function() {
                 sendTuningPatch(patch);
             });
         });
+        console.log('[tuning] bound', pidBound, 'PID inputs');
     }
 
 

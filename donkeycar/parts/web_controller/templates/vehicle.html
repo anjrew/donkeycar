@@ -135,7 +135,7 @@
                 </div>
               </fieldset>
 
-              <fieldset style="margin-bottom:4px;">
+              <fieldset style="margin-bottom:8px;">
                 <legend style="font-size:13px;margin-bottom:4px;">PID</legend>
                 <div class="form-group form-inline" style="margin-bottom:2px;">
                   <label for="tune_pid_p" style="display:inline-block;width:50px;font-size:12px;">P</label>
@@ -149,7 +149,19 @@
                   <label for="tune_pid_d" style="display:inline-block;width:50px;font-size:12px;">D</label>
                   <input type="number" id="tune_pid_d" step="0.00001" class="form-control input-sm" style="width:140px;">
                 </div>
-                <p class="text-muted" style="margin-top:4px;margin-bottom:0;"><small>Hue is OpenCV-style 0&ndash;179. Changes apply live; restart to revert to <code>myconfig.py</code>.</small></p>
+              </fieldset>
+
+              <fieldset style="margin-bottom:4px;">
+                <legend style="font-size:13px;margin-bottom:4px;">Steering PWM endpoints</legend>
+                <div class="form-group form-inline" style="margin-bottom:2px;">
+                  <label for="tune_steering_left_pwm" style="display:inline-block;width:50px;font-size:12px;">L</label>
+                  <input type="number" id="tune_steering_left_pwm" min="0" max="4095" step="1" class="form-control input-sm" style="width:120px;">
+                </div>
+                <div class="form-group form-inline" style="margin-bottom:2px;">
+                  <label for="tune_steering_right_pwm" style="display:inline-block;width:50px;font-size:12px;">R</label>
+                  <input type="number" id="tune_steering_right_pwm" min="0" max="4095" step="1" class="form-control input-sm" style="width:120px;">
+                </div>
+                <p class="text-muted" style="margin-top:4px;margin-bottom:0;"><small>Hue is OpenCV-style 0&ndash;179. Changes apply live; restart to revert to <code>myconfig.py</code>. Steering endpoints are PCA9685 12-bit (0&ndash;4095).</small></p>
               </fieldset>
 
             </div>

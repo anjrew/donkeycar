@@ -52,6 +52,7 @@ var driveHandler = new function() {
         pid_p: 0.0, pid_i: 0.0, pid_d: 0.0,
         throttle_min: 0.0, throttle_max: 1.0,
         scan_y: 0, scan_height: 0,
+        steering_left_pwm: 0, steering_right_pwm: 0,
     };
 
     this.load = function() {
@@ -234,18 +235,63 @@ var driveHandler = new function() {
         fetch('/tuning/snippet')
           .then(function(r) { return r.text(); })
           .then(function(text) {
+            // navigator.clipboard.writeText only works in secure
+            // contexts (https or http://localhost). On a Pi served
+            // over plain http we have to fall back to the legacy
+            // document.execCommand('copy') path.
             if (navigator.clipboard && navigator.clipboard.writeText) {
-              return navigator.clipboard.writeText(text);
+              console.log('[tuning] copy: using navigator.clipboard');
+              return navigator.clipboard.writeText(text).then(function() {
+                flashTuningStatus('snippet copied');
+              }).catch(function(err) {
+                console.warn('[tuning] navigator.clipboard failed, falling back', err);
+                if (legacyCopyToClipboard(text)) {
+                  flashTuningStatus('snippet copied');
+                } else {
+                  flashTuningStatus('copy failed (see console)', true);
+                }
+              });
             }
-            return Promise.reject(new Error('clipboard api unavailable'));
+            console.log('[tuning] copy: navigator.clipboard unavailable, using execCommand fallback');
+            if (legacyCopyToClipboard(text)) {
+              flashTuningStatus('snippet copied');
+            } else {
+              flashTuningStatus('copy failed (see console)', true);
+            }
           })
-          .then(function() { flashTuningStatus('snippet copied'); })
           .catch(function(err) {
-            console.warn('snippet copy failed', err);
+            console.warn('[tuning] snippet fetch failed', err);
             flashTuningStatus('copy failed (see console)', true);
           });
       });
     };
+
+    // Copy `text` to the clipboard via a hidden <textarea> and
+    // document.execCommand('copy'). Works on plain http:// where
+    // navigator.clipboard is undefined. Returns true on success.
+    function legacyCopyToClipboard(text) {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.readOnly = true;
+        ta.style.position = 'fixed';
+        ta.style.top = '0';
+        ta.style.left = '0';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        var ok = false;
+        try {
+            ta.focus();
+            ta.select();
+            ok = document.execCommand('copy');
+            console.log('[tuning] legacyCopyToClipboard execCommand =', ok);
+        } catch (e) {
+            console.warn('[tuning] legacyCopyToClipboard threw', e);
+            ok = false;
+        } finally {
+            document.body.removeChild(ta);
+        }
+        return ok;
+    }
 
     function sendTuningPatch(patch) {
         var state = tuningSocket ? tuningSocket.readyState : 'no-socket';
@@ -278,6 +324,15 @@ var driveHandler = new function() {
         console.log('[tuning] paintTuningUI state=', JSON.stringify(tuningState));
         var painted = 0;
 
+        // Skip writes to any input the user is actively interacting with,
+        // so a server snapshot doesn't yank a slider/textbox back while
+        // the user is mid-drag or mid-type. document.activeElement is the
+        // currently focused element.
+        function _shouldSkip(id) {
+            var ae = document.activeElement;
+            return ae && ae.id === id;
+        }
+
         // HSV sliders
         ['center', 'edge'].forEach(function(group) {
             ['low', 'high'].forEach(function(bound) {
@@ -289,6 +344,7 @@ var driveHandler = new function() {
                 }
                 ['h', 's', 'v'].forEach(function(ch, idx) {
                     var id = 'tune_hsv_' + group + '_' + ch + '_' + bound;
+                    if (_shouldSkip(id)) return;
                     var $el = $('#' + id);
                     if (!$el.length) {
                         console.warn('[tuning] paint: missing element', id);
@@ -309,6 +365,7 @@ var driveHandler = new function() {
                 return;
             }
             var id = 'tune_' + key;
+            if (_shouldSkip(id)) return;
             $('#' + id).val(v);
             $('output[for="' + id + '"]').text(v);
             painted++;
@@ -318,15 +375,18 @@ var driveHandler = new function() {
         // type="number"> as a string the browser accepts. step="0.00001"
         // means the browser is happy with up to 5 decimals; the literal
         // round-trip via .val() is fine.
-        ['pid_p', 'pid_i', 'pid_d'].forEach(function(key) {
+        ['pid_p', 'pid_i', 'pid_d',
+         'steering_left_pwm', 'steering_right_pwm'].forEach(function(key) {
             var v = tuningState[key];
             if (v === null || v === undefined || isNaN(v)) {
-                console.warn('[tuning] paint skipped PID', key, 'value=', v);
+                console.warn('[tuning] paint skipped', key, 'value=', v);
                 return;
             }
-            var $el = $('#tune_' + key);
+            var id = 'tune_' + key;
+            if (_shouldSkip(id)) return;
+            var $el = $('#' + id);
             if (!$el.length) {
-                console.warn('[tuning] paint: missing PID element tune_' + key);
+                console.warn('[tuning] paint: missing element', id);
                 return;
             }
             $el.val(v);
@@ -397,36 +457,43 @@ var driveHandler = new function() {
         });
         console.log('[tuning] bound', scalarBound, 'scalar sliders');
 
-        // PID numeric inputs — commit on every input (debounced) so the
-        // value reaches the car as you spin/type, not only on blur/Enter.
-        // 'change' is also bound so pressing Enter or tabbing away
-        // guarantees a commit even if debounce hadn't fired yet.
-        var pidBound = 0;
-        var sendPidDebounced = debounce(sendTuningPatch, 200);
-        ['pid_p', 'pid_i', 'pid_d'].forEach(function(key) {
-            var $el = $('#tune_' + key);
+        // Numeric inputs (PID + steering PWM endpoints) — commit on
+        // every input (debounced) so the value reaches the car as you
+        // type, not only on blur/Enter. 'change' also fires immediately
+        // on Enter/Tab.
+        var numBound = 0;
+        var sendNumDebounced = debounce(sendTuningPatch, 200);
+        var numericKeys = [
+            {key: 'pid_p', parse: parseFloat},
+            {key: 'pid_i', parse: parseFloat},
+            {key: 'pid_d', parse: parseFloat},
+            {key: 'steering_left_pwm',  parse: function(s) { return parseInt(s, 10); }},
+            {key: 'steering_right_pwm', parse: function(s) { return parseInt(s, 10); }},
+        ];
+        numericKeys.forEach(function(spec) {
+            var $el = $('#tune_' + spec.key);
             if (!$el.length) {
-                console.warn('[tuning] PID input missing:', 'tune_' + key);
+                console.warn('[tuning] numeric input missing:', 'tune_' + spec.key);
                 return;
             }
-            pidBound++;
+            numBound++;
             var commit = function(immediate) {
-                console.log('[tuning] PID', key, 'value=', this.value, 'immediate=', !!immediate);
-                var v = parseFloat(this.value);
+                console.log('[tuning]', spec.key, 'value=', this.value, 'immediate=', !!immediate);
+                var v = spec.parse(this.value);
                 if (isNaN(v)) return;
-                tuningState[key] = v;
+                tuningState[spec.key] = v;
                 var patch = {};
-                patch[key] = v;
+                patch[spec.key] = v;
                 if (immediate) {
                     sendTuningPatch(patch);
                 } else {
-                    sendPidDebounced(patch);
+                    sendNumDebounced(patch);
                 }
             };
             $el.on('input', function() { commit.call(this, false); });
             $el.on('change', function() { commit.call(this, true); });
         });
-        console.log('[tuning] bound', pidBound, 'PID inputs');
+        console.log('[tuning] bound', numBound, 'numeric inputs');
     }
 
 

@@ -275,29 +275,64 @@ var driveHandler = new function() {
     }
 
     function paintTuningUI() {
-        console.log('[tuning] paintTuningUI', tuningState);
+        console.log('[tuning] paintTuningUI state=', JSON.stringify(tuningState));
+        var painted = 0;
+
         // HSV sliders
         ['center', 'edge'].forEach(function(group) {
             ['low', 'high'].forEach(function(bound) {
                 var key = 'hsv_' + group + '_' + bound;
-                var arr = tuningState[key] || [0, 0, 0];
+                var arr = tuningState[key];
+                if (!Array.isArray(arr) || arr.length !== 3) {
+                    console.warn('[tuning] paint skipped key=', key, 'value=', arr);
+                    return;
+                }
                 ['h', 's', 'v'].forEach(function(ch, idx) {
                     var id = 'tune_hsv_' + group + '_' + ch + '_' + bound;
-                    $('#' + id).val(arr[idx]);
+                    var $el = $('#' + id);
+                    if (!$el.length) {
+                        console.warn('[tuning] paint: missing element', id);
+                        return;
+                    }
+                    $el.val(arr[idx]);
                     $('output[for="' + id + '"]').text(arr[idx]);
+                    painted++;
                 });
             });
         });
-        // Scan + throttle
+
+        // Scan + throttle (scalar sliders)
         ['scan_y', 'scan_height', 'throttle_min', 'throttle_max'].forEach(function(key) {
+            var v = tuningState[key];
+            if (v === null || v === undefined) {
+                console.warn('[tuning] paint skipped key=', key, 'value=', v);
+                return;
+            }
             var id = 'tune_' + key;
-            $('#' + id).val(tuningState[key]);
-            $('output[for="' + id + '"]').text(tuningState[key]);
+            $('#' + id).val(v);
+            $('output[for="' + id + '"]').text(v);
+            painted++;
         });
-        // PID
+
+        // PID numeric inputs. Floats like -0.01335 must reach <input
+        // type="number"> as a string the browser accepts. step="0.00001"
+        // means the browser is happy with up to 5 decimals; the literal
+        // round-trip via .val() is fine.
         ['pid_p', 'pid_i', 'pid_d'].forEach(function(key) {
-            $('#tune_' + key).val(tuningState[key]);
+            var v = tuningState[key];
+            if (v === null || v === undefined || isNaN(v)) {
+                console.warn('[tuning] paint skipped PID', key, 'value=', v);
+                return;
+            }
+            var $el = $('#tune_' + key);
+            if (!$el.length) {
+                console.warn('[tuning] paint: missing PID element tune_' + key);
+                return;
+            }
+            $el.val(v);
+            painted++;
         });
+        console.log('[tuning] paintTuningUI painted', painted, 'fields');
     }
 
     function bindTuningSliders() {
@@ -362,9 +397,12 @@ var driveHandler = new function() {
         });
         console.log('[tuning] bound', scalarBound, 'scalar sliders');
 
-        // PID numeric inputs — fire on 'change' (commit on blur / Enter)
-        // rather than 'input' so partial typing doesn't push noise.
+        // PID numeric inputs — commit on every input (debounced) so the
+        // value reaches the car as you spin/type, not only on blur/Enter.
+        // 'change' is also bound so pressing Enter or tabbing away
+        // guarantees a commit even if debounce hadn't fired yet.
         var pidBound = 0;
+        var sendPidDebounced = debounce(sendTuningPatch, 200);
         ['pid_p', 'pid_i', 'pid_d'].forEach(function(key) {
             var $el = $('#tune_' + key);
             if (!$el.length) {
@@ -372,15 +410,21 @@ var driveHandler = new function() {
                 return;
             }
             pidBound++;
-            $el.on('change', function() {
-                console.log('[tuning] PID change', key, 'value=', this.value);
+            var commit = function(immediate) {
+                console.log('[tuning] PID', key, 'value=', this.value, 'immediate=', !!immediate);
                 var v = parseFloat(this.value);
                 if (isNaN(v)) return;
                 tuningState[key] = v;
                 var patch = {};
                 patch[key] = v;
-                sendTuningPatch(patch);
-            });
+                if (immediate) {
+                    sendTuningPatch(patch);
+                } else {
+                    sendPidDebounced(patch);
+                }
+            };
+            $el.on('input', function() { commit.call(this, false); });
+            $el.on('change', function() { commit.call(this, true); });
         });
         console.log('[tuning] bound', pidBound, 'PID inputs');
     }

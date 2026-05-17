@@ -250,6 +250,7 @@ class LocalWebController(tornado.web.Application):
             (r"/wsCalibrate", WebSocketCalibrateAPI),
             (r"/wsTuning", WebSocketTuningAPI),
             (r"/tuning/snippet", TuningSnippetHandler),
+            (r"/tuning/state", TuningStateHandler),
             (r"/calibrate", CalibrateHandler),
             (r"/video", VideoAPI),
             (r"/wsTest", WsTest),
@@ -521,6 +522,18 @@ class TuningSnippetHandler(RequestHandler):
     def get(self):
         self.set_header("Content-Type", "text/plain; charset=utf-8")
         self.write(_render_myconfig_snippet(self.application.tuning))
+
+
+class TuningStateHandler(RequestHandler):
+    """GET /tuning/state — JSON dump of current server-side tuning state.
+    Useful for `curl` debugging when the UI looks wrong."""
+    def get(self):
+        self.set_header("Content-Type", "application/json")
+        self.write(json.dumps({
+            'tuning': self.application.tuning,
+            'seq': self.application.tuning_seq,
+            'clients': len(self.application.wsTuningClients),
+        }))
 
 
 class WebSocketCalibrateAPI(tornado.websocket.WebSocketHandler):

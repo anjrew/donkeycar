@@ -288,9 +288,14 @@ class LocalWebController(tornado.web.Application):
         tuning_listeners with the full snapshot. Returns the rejections list.
         """
         clean, rejections = _validate_tuning_patch(patch, self.tuning)
+        logger.info("[tuning] apply_patch in=%s clean=%s rej=%s",
+                    list(patch.keys()), list(clean.keys()),
+                    [r['key'] for r in rejections])
         if clean:
             self.tuning.update(clean)
             self.tuning_seq += 1
+            logger.info("[tuning] listeners=%d about to fire",
+                        len(self.tuning_listeners))
             for listener in self.tuning_listeners:
                 try:
                     listener(self.tuning)
@@ -463,39 +468,52 @@ class WebSocketTuningAPI(tornado.websocket.WebSocketHandler):
     def open(self):
         self._last_msg_ts = 0.0
         self.application.wsTuningClients.append(self)
+        logger.info("[tuning] client connected (clients=%d)",
+                    len(self.application.wsTuningClients))
         try:
             self.write_message(json.dumps({
                 'type': 'snapshot',
                 'tuning': self.application.tuning,
                 'seq': self.application.tuning_seq,
             }))
+            logger.info("[tuning] sent initial snapshot seq=%d",
+                        self.application.tuning_seq)
         except Exception as e:
             logger.warning("Error writing tuning snapshot on open", exc_info=e)
 
     def on_message(self, message):
         now = time.time()
         if now - self._last_msg_ts < self._RATE_LIMIT_S:
+            logger.info("[tuning] rate-limited drop (gap=%.3fs)",
+                        now - self._last_msg_ts)
             return
         self._last_msg_ts = now
+        logger.info("[tuning] recv: %s", message[:200])
         try:
             data = json.loads(message)
         except (TypeError, ValueError):
-            logger.warning("Tuning ws received malformed JSON")
+            logger.warning("[tuning] malformed JSON: %s", message[:100])
             return
         patch = data.get('set') or {}
         rejections = self.application.apply_tuning_patch(patch)
         if rejections:
+            logger.info("[tuning] rejections: %s", rejections)
             try:
                 self.write_message(json.dumps({'type': 'rejected',
                                                'rejections': rejections}))
             except Exception:
                 pass
+        else:
+            logger.info("[tuning] committed patch keys=%s seq=%d",
+                        list(patch.keys()), self.application.tuning_seq)
 
     def on_close(self):
         try:
             self.application.wsTuningClients.remove(self)
         except ValueError:
             pass
+        logger.info("[tuning] client disconnected (clients=%d)",
+                    len(self.application.wsTuningClients))
 
 
 class TuningSnippetHandler(RequestHandler):

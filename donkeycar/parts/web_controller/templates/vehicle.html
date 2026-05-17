@@ -63,98 +63,100 @@
         </div>
       </div> <!-- end video column -->
 
-      <!-- ============================================================
-           Tuning panel (HSV / scan region / throttle / PID).
-           Mutates donkeycar.web_controller.LocalWebController.tuning
-           live via /wsTuning. See main.js bindTuningSliders().
-           ============================================================ -->
-      <div class="col-md-12" id="tuning-panel-wrap">
-        <div class="panel panel-default" id="tuning-panel" style="margin-top:10px;">
+      <div id="joystick-column"  class="col-md-6">
+
+        <!-- ============================================================
+             Tuning panel (HSV / scan region / throttle / PID).
+             Mutates donkeycar.web_controller.LocalWebController.tuning
+             live via /wsTuning. See main.js bindTuningSliders().
+             Positioned at top of the right column so it sits next to
+             the video for live adjustment while watching the stream.
+             ============================================================ -->
+        <div class="panel panel-default" id="tuning-panel" style="margin-bottom:10px;">
           <div class="panel-heading" style="cursor:pointer;" data-toggle="collapse" data-target="#tuning-body">
             <h4 class="panel-title" style="display:inline-block;">Tuning &#9662;</h4>
             <button type="button" id="copy-snippet-btn" class="btn btn-xs btn-default pull-right" onclick="event.stopPropagation();">Copy myconfig snippet</button>
             <span id="tuning-status" class="pull-right" style="margin-right:10px;color:#888;"></span>
           </div>
-          <div id="tuning-body" class="panel-collapse collapse">
-            <div class="panel-body">
+          <div id="tuning-body" class="panel-collapse collapse in">
+            <div class="panel-body" style="padding:8px;">
 
-              <fieldset>
-                <legend>Center line HSV (yellow)</legend>
+              <fieldset style="margin-bottom:8px;">
+                <legend style="font-size:13px;margin-bottom:4px;">Center line HSV (yellow)</legend>
                 {% for bound in ['low', 'high'] %}
                   {% for ch, lo, hi in [('h', 0, 179), ('s', 0, 255), ('v', 0, 255)] %}
-                    <div class="form-group">
-                      <label for="tune_hsv_center_{{ ch }}_{{ bound }}" style="display:inline-block;width:60px;">{{ ch.upper() }} {{ bound }}</label>
-                      <input type="range" id="tune_hsv_center_{{ ch }}_{{ bound }}" min="{{ lo }}" max="{{ hi }}" step="1" style="display:inline-block;vertical-align:middle;width:60%;">
-                      <output for="tune_hsv_center_{{ ch }}_{{ bound }}" style="margin-left:8px;font-family:monospace;">--</output>
+                    <div class="form-group" style="margin-bottom:2px;">
+                      <label for="tune_hsv_center_{{ ch }}_{{ bound }}" style="display:inline-block;width:50px;font-size:12px;">{{ ch.upper() }} {{ bound }}</label>
+                      <input type="range" id="tune_hsv_center_{{ ch }}_{{ bound }}" min="{{ lo }}" max="{{ hi }}" step="1" style="display:inline-block;vertical-align:middle;width:55%;">
+                      <output for="tune_hsv_center_{{ ch }}_{{ bound }}" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
                     </div>
                   {% end %}
                 {% end %}
               </fieldset>
 
-              <fieldset>
-                <legend>Edge line HSV (white)</legend>
+              <fieldset style="margin-bottom:8px;">
+                <legend style="font-size:13px;margin-bottom:4px;">Edge line HSV (white)</legend>
                 {% for bound in ['low', 'high'] %}
                   {% for ch, lo, hi in [('h', 0, 179), ('s', 0, 255), ('v', 0, 255)] %}
-                    <div class="form-group">
-                      <label for="tune_hsv_edge_{{ ch }}_{{ bound }}" style="display:inline-block;width:60px;">{{ ch.upper() }} {{ bound }}</label>
-                      <input type="range" id="tune_hsv_edge_{{ ch }}_{{ bound }}" min="{{ lo }}" max="{{ hi }}" step="1" style="display:inline-block;vertical-align:middle;width:60%;">
-                      <output for="tune_hsv_edge_{{ ch }}_{{ bound }}" style="margin-left:8px;font-family:monospace;">--</output>
+                    <div class="form-group" style="margin-bottom:2px;">
+                      <label for="tune_hsv_edge_{{ ch }}_{{ bound }}" style="display:inline-block;width:50px;font-size:12px;">{{ ch.upper() }} {{ bound }}</label>
+                      <input type="range" id="tune_hsv_edge_{{ ch }}_{{ bound }}" min="{{ lo }}" max="{{ hi }}" step="1" style="display:inline-block;vertical-align:middle;width:55%;">
+                      <output for="tune_hsv_edge_{{ ch }}_{{ bound }}" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
                     </div>
                   {% end %}
                 {% end %}
               </fieldset>
 
-              <fieldset>
-                <legend>Scan region (pixels)</legend>
-                <div class="form-group">
-                  <label for="tune_scan_y" style="display:inline-block;width:120px;">scan_y</label>
-                  <input type="range" id="tune_scan_y" min="0" max="480" step="1" style="display:inline-block;vertical-align:middle;width:60%;">
-                  <output for="tune_scan_y" style="margin-left:8px;font-family:monospace;">--</output>
+              <fieldset style="margin-bottom:8px;">
+                <legend style="font-size:13px;margin-bottom:4px;">Scan region (pixels)</legend>
+                <div class="form-group" style="margin-bottom:2px;">
+                  <label for="tune_scan_y" style="display:inline-block;width:90px;font-size:12px;">scan_y</label>
+                  <input type="range" id="tune_scan_y" min="0" max="480" step="1" style="display:inline-block;vertical-align:middle;width:50%;">
+                  <output for="tune_scan_y" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
                 </div>
-                <div class="form-group">
-                  <label for="tune_scan_height" style="display:inline-block;width:120px;">scan_height</label>
-                  <input type="range" id="tune_scan_height" min="0" max="480" step="1" style="display:inline-block;vertical-align:middle;width:60%;">
-                  <output for="tune_scan_height" style="margin-left:8px;font-family:monospace;">--</output>
-                </div>
-              </fieldset>
-
-              <fieldset>
-                <legend>Throttle limits</legend>
-                <div class="form-group">
-                  <label for="tune_throttle_min" style="display:inline-block;width:120px;">throttle_min</label>
-                  <input type="range" id="tune_throttle_min" min="-1" max="1" step="0.01" style="display:inline-block;vertical-align:middle;width:60%;">
-                  <output for="tune_throttle_min" style="margin-left:8px;font-family:monospace;">--</output>
-                </div>
-                <div class="form-group">
-                  <label for="tune_throttle_max" style="display:inline-block;width:120px;">throttle_max</label>
-                  <input type="range" id="tune_throttle_max" min="-1" max="1" step="0.01" style="display:inline-block;vertical-align:middle;width:60%;">
-                  <output for="tune_throttle_max" style="margin-left:8px;font-family:monospace;">--</output>
+                <div class="form-group" style="margin-bottom:2px;">
+                  <label for="tune_scan_height" style="display:inline-block;width:90px;font-size:12px;">scan_height</label>
+                  <input type="range" id="tune_scan_height" min="0" max="480" step="1" style="display:inline-block;vertical-align:middle;width:50%;">
+                  <output for="tune_scan_height" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
                 </div>
               </fieldset>
 
-              <fieldset>
-                <legend>PID</legend>
-                <div class="form-group form-inline">
-                  <label for="tune_pid_p" style="display:inline-block;width:60px;">P</label>
-                  <input type="number" id="tune_pid_p" step="0.00001" class="form-control" style="width:160px;">
+              <fieldset style="margin-bottom:8px;">
+                <legend style="font-size:13px;margin-bottom:4px;">Throttle limits</legend>
+                <div class="form-group" style="margin-bottom:2px;">
+                  <label for="tune_throttle_min" style="display:inline-block;width:90px;font-size:12px;">throttle_min</label>
+                  <input type="range" id="tune_throttle_min" min="-1" max="1" step="0.01" style="display:inline-block;vertical-align:middle;width:50%;">
+                  <output for="tune_throttle_min" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
                 </div>
-                <div class="form-group form-inline">
-                  <label for="tune_pid_i" style="display:inline-block;width:60px;">I</label>
-                  <input type="number" id="tune_pid_i" step="0.00001" class="form-control" style="width:160px;">
+                <div class="form-group" style="margin-bottom:2px;">
+                  <label for="tune_throttle_max" style="display:inline-block;width:90px;font-size:12px;">throttle_max</label>
+                  <input type="range" id="tune_throttle_max" min="-1" max="1" step="0.01" style="display:inline-block;vertical-align:middle;width:50%;">
+                  <output for="tune_throttle_max" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
                 </div>
-                <div class="form-group form-inline">
-                  <label for="tune_pid_d" style="display:inline-block;width:60px;">D</label>
-                  <input type="number" id="tune_pid_d" step="0.00001" class="form-control" style="width:160px;">
+              </fieldset>
+
+              <fieldset style="margin-bottom:4px;">
+                <legend style="font-size:13px;margin-bottom:4px;">PID</legend>
+                <div class="form-group form-inline" style="margin-bottom:2px;">
+                  <label for="tune_pid_p" style="display:inline-block;width:50px;font-size:12px;">P</label>
+                  <input type="number" id="tune_pid_p" step="0.00001" class="form-control input-sm" style="width:140px;">
                 </div>
-                <p class="text-muted"><small>Hue is OpenCV-style 0&ndash;179. Changes apply live; restart to revert to <code>myconfig.py</code>.</small></p>
+                <div class="form-group form-inline" style="margin-bottom:2px;">
+                  <label for="tune_pid_i" style="display:inline-block;width:50px;font-size:12px;">I</label>
+                  <input type="number" id="tune_pid_i" step="0.00001" class="form-control input-sm" style="width:140px;">
+                </div>
+                <div class="form-group form-inline" style="margin-bottom:2px;">
+                  <label for="tune_pid_d" style="display:inline-block;width:50px;font-size:12px;">D</label>
+                  <input type="number" id="tune_pid_d" step="0.00001" class="form-control input-sm" style="width:140px;">
+                </div>
+                <p class="text-muted" style="margin-top:4px;margin-bottom:0;"><small>Hue is OpenCV-style 0&ndash;179. Changes apply live; restart to revert to <code>myconfig.py</code>.</small></p>
               </fieldset>
 
             </div>
           </div>
         </div>
-      </div>
+        <!-- end tuning panel -->
 
-      <div id="joystick-column"  class="col-md-6">
         <div style="text-align:center;color:rgb(255, 27, 65);display:inline-block">Note: physical game controller overrides web control.</div>
         <!-- virtual joystick -->
         <div id="joystick_outer" class="thumbnail">

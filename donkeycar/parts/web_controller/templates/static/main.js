@@ -41,10 +41,33 @@ var driveHandler = new function() {
     var vehicle_id = ""
     var driveURL = ""
     var socket
+    var tuningSocket
+    // Mirror of LocalWebController.tuning on the server. Populated by
+    // /wsTuning snapshot messages; mutated by slider input events.
+    var tuningState = {
+        hsv_center_low:  [0, 0, 0],
+        hsv_center_high: [179, 255, 255],
+        hsv_edge_low:    [0, 0, 0],
+        hsv_edge_high:   [179, 255, 255],
+        pid_p: 0.0, pid_i: 0.0, pid_d: 0.0,
+        throttle_min: 0.0, throttle_max: 1.0,
+        scan_y: 0, scan_height: 0,
+    };
 
     this.load = function() {
       driveURL = '/drive'
       socket = new WebSocket('ws://' + location.host + '/wsDrive');
+      tuningSocket = new WebSocket('ws://' + location.host + '/wsTuning');
+      tuningSocket.onmessage = function(evt) {
+          var msg;
+          try { msg = JSON.parse(evt.data); } catch (e) { return; }
+          if (msg.type === 'snapshot' && msg.tuning) {
+              Object.assign(tuningState, msg.tuning);
+              paintTuningUI();
+          } else if (msg.type === 'rejected') {
+              flashTuningStatus('rejected: ' + msg.rejections.map(r => r.key).join(', '), true);
+          }
+      };
 
       setBindings()
 
@@ -188,7 +211,131 @@ var driveHandler = new function() {
         state.buttons[$(this).attr('id')] = false;
         postDrive(["buttons"]); // write it back to the server
       });
+
+      // ====== Tuning panel bindings ======
+      bindTuningSliders();
+      $('#copy-snippet-btn').on('click', function() {
+        fetch('/tuning/snippet')
+          .then(function(r) { return r.text(); })
+          .then(function(text) {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              return navigator.clipboard.writeText(text);
+            }
+            return Promise.reject(new Error('clipboard api unavailable'));
+          })
+          .then(function() { flashTuningStatus('snippet copied'); })
+          .catch(function(err) {
+            console.warn('snippet copy failed', err);
+            flashTuningStatus('copy failed (see console)', true);
+          });
+      });
     };
+
+    function sendTuningPatch(patch) {
+        if (tuningSocket && tuningSocket.readyState === 1) {
+            tuningSocket.send(JSON.stringify({ set: patch }));
+        }
+    }
+
+    // Debounce so dragging a slider doesn't flood the websocket.
+    function debounce(fn, ms) {
+        var t = null;
+        return function() {
+            var args = arguments, self = this;
+            clearTimeout(t);
+            t = setTimeout(function() { fn.apply(self, args); }, ms);
+        };
+    }
+
+    function flashTuningStatus(text, isError) {
+        var $el = $('#tuning-status');
+        if (!$el.length) return;
+        $el.text(text).css('color', isError ? '#c00' : '#888');
+        setTimeout(function() { $el.text(''); }, 2000);
+    }
+
+    function paintTuningUI() {
+        // HSV sliders
+        ['center', 'edge'].forEach(function(group) {
+            ['low', 'high'].forEach(function(bound) {
+                var key = 'hsv_' + group + '_' + bound;
+                var arr = tuningState[key] || [0, 0, 0];
+                ['h', 's', 'v'].forEach(function(ch, idx) {
+                    var id = 'tune_hsv_' + group + '_' + ch + '_' + bound;
+                    $('#' + id).val(arr[idx]);
+                    $('output[for="' + id + '"]').text(arr[idx]);
+                });
+            });
+        });
+        // Scan + throttle
+        ['scan_y', 'scan_height', 'throttle_min', 'throttle_max'].forEach(function(key) {
+            var id = 'tune_' + key;
+            $('#' + id).val(tuningState[key]);
+            $('output[for="' + id + '"]').text(tuningState[key]);
+        });
+        // PID
+        ['pid_p', 'pid_i', 'pid_d'].forEach(function(key) {
+            $('#tune_' + key).val(tuningState[key]);
+        });
+    }
+
+    function bindTuningSliders() {
+        var sendDebounced = debounce(sendTuningPatch, 100);
+
+        // HSV sliders write into 3-element arrays.
+        ['center', 'edge'].forEach(function(group) {
+            ['low', 'high'].forEach(function(bound) {
+                var key = 'hsv_' + group + '_' + bound;
+                ['h', 's', 'v'].forEach(function(ch, idx) {
+                    var id = 'tune_hsv_' + group + '_' + ch + '_' + bound;
+                    $('#' + id).on('input', function() {
+                        var v = parseInt(this.value, 10);
+                        if (isNaN(v)) return;
+                        // Clone before mutating so we always send a fresh
+                        // length-3 array (server validator requires it).
+                        var arr = (tuningState[key] || [0, 0, 0]).slice();
+                        arr[idx] = v;
+                        tuningState[key] = arr;
+                        $('output[for="' + id + '"]').text(v);
+                        var patch = {};
+                        patch[key] = arr;
+                        sendDebounced(patch);
+                    });
+                });
+            });
+        });
+
+        // Scan region + throttle limits (range sliders, scalar values).
+        [
+            {id: 'tune_scan_y',        key: 'scan_y',        parse: parseInt},
+            {id: 'tune_scan_height',   key: 'scan_height',   parse: parseInt},
+            {id: 'tune_throttle_min',  key: 'throttle_min',  parse: parseFloat},
+            {id: 'tune_throttle_max',  key: 'throttle_max',  parse: parseFloat},
+        ].forEach(function(s) {
+            $('#' + s.id).on('input', function() {
+                var v = s.parse(this.value);
+                if (isNaN(v)) return;
+                tuningState[s.key] = v;
+                $('output[for="' + s.id + '"]').text(v);
+                var patch = {};
+                patch[s.key] = v;
+                sendDebounced(patch);
+            });
+        });
+
+        // PID numeric inputs — fire on 'change' (commit on blur / Enter)
+        // rather than 'input' so partial typing doesn't push noise.
+        ['pid_p', 'pid_i', 'pid_d'].forEach(function(key) {
+            $('#tune_' + key).on('change', function() {
+                var v = parseFloat(this.value);
+                if (isNaN(v)) return;
+                tuningState[key] = v;
+                var patch = {};
+                patch[key] = v;
+                sendTuningPatch(patch);
+            });
+        });
+    }
 
 
     function bindNipple(manager) {

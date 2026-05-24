@@ -81,110 +81,169 @@
           <div id="tuning-body" class="panel-collapse collapse in">
             <div class="panel-body" style="padding:8px;">
 
-              <!-- Mode selector — controls which fieldsets below are visible
-                   (see applyModeVisibility in main.js). -->
-              <fieldset style="margin-bottom:8px;">
-                <legend style="font-size:13px;margin-bottom:4px;">Detection mode</legend>
-                <div class="btn-group btn-group-sm" data-toggle="buttons" id="tune_mode_group">
-                  <label class="btn btn-default"><input type="radio" name="tune_mode" value="center_line"> Center line</label>
-                  <label class="btn btn-default"><input type="radio" name="tune_mode" value="center_line_with_angle"> Center + angle</label>
-                  <label class="btn btn-default"><input type="radio" name="tune_mode" value="two_edges"> Two edges</label>
-                  <label class="btn btn-default"><input type="radio" name="tune_mode" value="two_contours"> Two contours</label>
-                </div>
-              </fieldset>
-
-              <fieldset style="margin-bottom:8px;" data-modes="center_line center_line_with_angle">
-                <legend style="font-size:13px;margin-bottom:4px;">Center line HSV</legend>
-                {% for bound in ['low', 'high'] %}
-                  {% for ch, lo, hi in [('h', 0, 179), ('s', 0, 255), ('v', 0, 255)] %}
-                    <div class="form-group" style="margin-bottom:2px;">
-                      <label for="tune_hsv_center_{{ ch }}_{{ bound }}" style="display:inline-block;width:50px;font-size:12px;">{{ ch.upper() }} {{ bound }}</label>
-                      <input type="range" id="tune_hsv_center_{{ ch }}_{{ bound }}" min="{{ lo }}" max="{{ hi }}" step="1" style="display:inline-block;vertical-align:middle;width:55%;">
-                      <output for="tune_hsv_center_{{ ch }}_{{ bound }}" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+              <!-- Mode selector — controls which subsections below are visible
+                   (see applyModeVisibility in main.js). Each subsection below
+                   is itself individually collapsible via Bootstrap collapse
+                   (data-toggle on the heading toggles the matching panel-collapse
+                   body). State is persisted per-section by bindTuningSectionCollapse(). -->
+              <div class="tune-section">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-mode">
+                  <span class="tune-section-title">Detection mode</span>
+                  <span class="tune-section-chevron">&#9662;</span>
+                </button>
+                <div id="tune-sec-mode" class="panel-collapse collapse in">
+                  <div class="tune-section-body">
+                    <div class="btn-group btn-group-sm" data-toggle="buttons" id="tune_mode_group">
+                      <label class="btn btn-default"><input type="radio" name="tune_mode" value="center_line"> Center line</label>
+                      <label class="btn btn-default"><input type="radio" name="tune_mode" value="center_line_with_angle"> Center + angle</label>
+                      <label class="btn btn-default"><input type="radio" name="tune_mode" value="two_edges"> Two edges</label>
+                      <label class="btn btn-default"><input type="radio" name="tune_mode" value="two_contours"> Two contours</label>
                     </div>
-                  {% end %}
-                {% end %}
-              </fieldset>
+                  </div>
+                </div>
+              </div>
 
-              <fieldset style="margin-bottom:8px;" data-modes="two_edges two_contours">
-                <legend style="font-size:13px;margin-bottom:4px;">Edge HSV</legend>
-                {% for bound in ['low', 'high'] %}
-                  {% for ch, lo, hi in [('h', 0, 179), ('s', 0, 255), ('v', 0, 255)] %}
+              <div class="tune-section" data-modes="center_line center_line_with_angle">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-center-hsv">
+                  <span class="tune-section-title">Center line HSV</span>
+                  <span class="tune-section-chevron">&#9662;</span>
+                </button>
+                <div id="tune-sec-center-hsv" class="panel-collapse collapse in">
+                  <div class="tune-section-body">
+                    {% for bound in ['low', 'high'] %}
+                      {% for ch, lo, hi in [('h', 0, 179), ('s', 0, 255), ('v', 0, 255)] %}
+                        <div class="form-group" style="margin-bottom:2px;">
+                          <label for="tune_hsv_center_{{ ch }}_{{ bound }}" style="display:inline-block;width:50px;font-size:12px;">{{ ch.upper() }} {{ bound }}</label>
+                          <input type="range" id="tune_hsv_center_{{ ch }}_{{ bound }}" min="{{ lo }}" max="{{ hi }}" step="1" style="display:inline-block;vertical-align:middle;width:55%;">
+                          <output for="tune_hsv_center_{{ ch }}_{{ bound }}" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                        </div>
+                      {% end %}
+                    {% end %}
+                  </div>
+                </div>
+              </div>
+
+              <div class="tune-section" data-modes="two_edges two_contours">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-edge-hsv">
+                  <span class="tune-section-title">Edge HSV</span>
+                  <span class="tune-section-chevron">&#9662;</span>
+                </button>
+                <div id="tune-sec-edge-hsv" class="panel-collapse collapse in">
+                  <div class="tune-section-body">
+                    {% for bound in ['low', 'high'] %}
+                      {% for ch, lo, hi in [('h', 0, 179), ('s', 0, 255), ('v', 0, 255)] %}
+                        <div class="form-group" style="margin-bottom:2px;">
+                          <label for="tune_hsv_edge_{{ ch }}_{{ bound }}" style="display:inline-block;width:50px;font-size:12px;">{{ ch.upper() }} {{ bound }}</label>
+                          <input type="range" id="tune_hsv_edge_{{ ch }}_{{ bound }}" min="{{ lo }}" max="{{ hi }}" step="1" style="display:inline-block;vertical-align:middle;width:55%;">
+                          <output for="tune_hsv_edge_{{ ch }}_{{ bound }}" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                        </div>
+                      {% end %}
+                    {% end %}
+                  </div>
+                </div>
+              </div>
+
+              <div class="tune-section" data-modes="two_edges two_contours">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-fallback">
+                  <span class="tune-section-title">Two-edge fallback</span>
+                  <span class="tune-section-chevron">&#9662;</span>
+                </button>
+                <div id="tune-sec-fallback" class="panel-collapse collapse in">
+                  <div class="tune-section-body">
                     <div class="form-group" style="margin-bottom:2px;">
-                      <label for="tune_hsv_edge_{{ ch }}_{{ bound }}" style="display:inline-block;width:50px;font-size:12px;">{{ ch.upper() }} {{ bound }}</label>
-                      <input type="range" id="tune_hsv_edge_{{ ch }}_{{ bound }}" min="{{ lo }}" max="{{ hi }}" step="1" style="display:inline-block;vertical-align:middle;width:55%;">
-                      <output for="tune_hsv_edge_{{ ch }}_{{ bound }}" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                      <label for="tune_half_track_width_px" style="display:inline-block;width:90px;font-size:12px;">half width</label>
+                      <input type="range" id="tune_half_track_width_px" min="20" max="320" step="1" style="display:inline-block;vertical-align:middle;width:50%;">
+                      <output for="tune_half_track_width_px" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
                     </div>
-                  {% end %}
-                {% end %}
-              </fieldset>
+                    <p class="text-muted" style="margin-top:4px;margin-bottom:0;"><small>Used when only one edge is visible: hold a target offset of this many pixels inward from it.</small></p>
+                  </div>
+                </div>
+              </div>
 
-              <fieldset style="margin-bottom:8px;" data-modes="two_edges two_contours">
-                <legend style="font-size:13px;margin-bottom:4px;">Two-edge fallback</legend>
-                <div class="form-group" style="margin-bottom:2px;">
-                  <label for="tune_half_track_width_px" style="display:inline-block;width:90px;font-size:12px;">half width</label>
-                  <input type="range" id="tune_half_track_width_px" min="20" max="320" step="1" style="display:inline-block;vertical-align:middle;width:50%;">
-                  <output for="tune_half_track_width_px" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+              <div class="tune-section" data-modes="center_line center_line_with_angle two_edges two_contours">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-scan">
+                  <span class="tune-section-title">Scan region (pixels)</span>
+                  <span class="tune-section-chevron">&#9662;</span>
+                </button>
+                <div id="tune-sec-scan" class="panel-collapse collapse in">
+                  <div class="tune-section-body">
+                    <div class="form-group" style="margin-bottom:2px;">
+                      <label for="tune_scan_y" style="display:inline-block;width:90px;font-size:12px;">scan_y</label>
+                      <input type="range" id="tune_scan_y" min="0" max="480" step="1" style="display:inline-block;vertical-align:middle;width:50%;">
+                      <output for="tune_scan_y" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                    </div>
+                    <div class="form-group" style="margin-bottom:2px;">
+                      <label for="tune_scan_height" style="display:inline-block;width:90px;font-size:12px;">scan_height</label>
+                      <input type="range" id="tune_scan_height" min="0" max="480" step="1" style="display:inline-block;vertical-align:middle;width:50%;">
+                      <output for="tune_scan_height" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                    </div>
+                  </div>
                 </div>
-                <p class="text-muted" style="margin-top:4px;margin-bottom:0;"><small>Used when only one edge is visible: hold a target offset of this many pixels inward from it.</small></p>
-              </fieldset>
+              </div>
 
-              <fieldset style="margin-bottom:8px;" data-modes="center_line center_line_with_angle two_edges two_contours">
-                <legend style="font-size:13px;margin-bottom:4px;">Scan region (pixels)</legend>
-                <div class="form-group" style="margin-bottom:2px;">
-                  <label for="tune_scan_y" style="display:inline-block;width:90px;font-size:12px;">scan_y</label>
-                  <input type="range" id="tune_scan_y" min="0" max="480" step="1" style="display:inline-block;vertical-align:middle;width:50%;">
-                  <output for="tune_scan_y" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+              <div class="tune-section" data-modes="center_line center_line_with_angle two_edges two_contours">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-throttle">
+                  <span class="tune-section-title">Throttle limits</span>
+                  <span class="tune-section-chevron">&#9662;</span>
+                </button>
+                <div id="tune-sec-throttle" class="panel-collapse collapse in">
+                  <div class="tune-section-body">
+                    <div class="form-group" style="margin-bottom:2px;">
+                      <label for="tune_throttle_min" style="display:inline-block;width:90px;font-size:12px;">throttle_min</label>
+                      <input type="range" id="tune_throttle_min" min="-1" max="1" step="0.01" style="display:inline-block;vertical-align:middle;width:50%;">
+                      <output for="tune_throttle_min" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                    </div>
+                    <div class="form-group" style="margin-bottom:2px;">
+                      <label for="tune_throttle_max" style="display:inline-block;width:90px;font-size:12px;">throttle_max</label>
+                      <input type="range" id="tune_throttle_max" min="-1" max="1" step="0.01" style="display:inline-block;vertical-align:middle;width:50%;">
+                      <output for="tune_throttle_max" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                    </div>
+                  </div>
                 </div>
-                <div class="form-group" style="margin-bottom:2px;">
-                  <label for="tune_scan_height" style="display:inline-block;width:90px;font-size:12px;">scan_height</label>
-                  <input type="range" id="tune_scan_height" min="0" max="480" step="1" style="display:inline-block;vertical-align:middle;width:50%;">
-                  <output for="tune_scan_height" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
-                </div>
-              </fieldset>
+              </div>
 
-              <fieldset style="margin-bottom:8px;" data-modes="center_line center_line_with_angle two_edges two_contours">
-                <legend style="font-size:13px;margin-bottom:4px;">Throttle limits</legend>
-                <div class="form-group" style="margin-bottom:2px;">
-                  <label for="tune_throttle_min" style="display:inline-block;width:90px;font-size:12px;">throttle_min</label>
-                  <input type="range" id="tune_throttle_min" min="-1" max="1" step="0.01" style="display:inline-block;vertical-align:middle;width:50%;">
-                  <output for="tune_throttle_min" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+              <div class="tune-section" data-modes="center_line center_line_with_angle two_edges two_contours">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-pid">
+                  <span class="tune-section-title">PID</span>
+                  <span class="tune-section-chevron">&#9662;</span>
+                </button>
+                <div id="tune-sec-pid" class="panel-collapse collapse in">
+                  <div class="tune-section-body">
+                    <div class="form-group form-inline" style="margin-bottom:2px;">
+                      <label for="tune_pid_p" style="display:inline-block;width:50px;font-size:12px;">P</label>
+                      <input type="number" id="tune_pid_p" step="0.00001" class="form-control input-sm" style="width:140px;">
+                    </div>
+                    <div class="form-group form-inline" style="margin-bottom:2px;">
+                      <label for="tune_pid_i" style="display:inline-block;width:50px;font-size:12px;">I</label>
+                      <input type="number" id="tune_pid_i" step="0.00001" class="form-control input-sm" style="width:140px;">
+                    </div>
+                    <div class="form-group form-inline" style="margin-bottom:2px;">
+                      <label for="tune_pid_d" style="display:inline-block;width:50px;font-size:12px;">D</label>
+                      <input type="number" id="tune_pid_d" step="0.00001" class="form-control input-sm" style="width:140px;">
+                    </div>
+                  </div>
                 </div>
-                <div class="form-group" style="margin-bottom:2px;">
-                  <label for="tune_throttle_max" style="display:inline-block;width:90px;font-size:12px;">throttle_max</label>
-                  <input type="range" id="tune_throttle_max" min="-1" max="1" step="0.01" style="display:inline-block;vertical-align:middle;width:50%;">
-                  <output for="tune_throttle_max" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
-                </div>
-              </fieldset>
+              </div>
 
-              <fieldset style="margin-bottom:8px;" data-modes="center_line center_line_with_angle two_edges two_contours">
-                <legend style="font-size:13px;margin-bottom:4px;">PID</legend>
-                <div class="form-group form-inline" style="margin-bottom:2px;">
-                  <label for="tune_pid_p" style="display:inline-block;width:50px;font-size:12px;">P</label>
-                  <input type="number" id="tune_pid_p" step="0.00001" class="form-control input-sm" style="width:140px;">
+              <div class="tune-section" data-modes="center_line center_line_with_angle two_edges two_contours">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-steering">
+                  <span class="tune-section-title">Steering PWM endpoints</span>
+                  <span class="tune-section-chevron">&#9662;</span>
+                </button>
+                <div id="tune-sec-steering" class="panel-collapse collapse in">
+                  <div class="tune-section-body">
+                    <div class="form-group form-inline" style="margin-bottom:2px;">
+                      <label for="tune_steering_left_pwm" style="display:inline-block;width:50px;font-size:12px;">L</label>
+                      <input type="number" id="tune_steering_left_pwm" min="0" max="4095" step="1" class="form-control input-sm" style="width:120px;">
+                    </div>
+                    <div class="form-group form-inline" style="margin-bottom:2px;">
+                      <label for="tune_steering_right_pwm" style="display:inline-block;width:50px;font-size:12px;">R</label>
+                      <input type="number" id="tune_steering_right_pwm" min="0" max="4095" step="1" class="form-control input-sm" style="width:120px;">
+                    </div>
+                    <p class="text-muted" style="margin-top:4px;margin-bottom:0;"><small>Hue is OpenCV-style 0&ndash;179. Changes apply live; restart to revert to <code>myconfig.py</code>. Steering endpoints are PCA9685 12-bit (0&ndash;4095).</small></p>
+                  </div>
                 </div>
-                <div class="form-group form-inline" style="margin-bottom:2px;">
-                  <label for="tune_pid_i" style="display:inline-block;width:50px;font-size:12px;">I</label>
-                  <input type="number" id="tune_pid_i" step="0.00001" class="form-control input-sm" style="width:140px;">
-                </div>
-                <div class="form-group form-inline" style="margin-bottom:2px;">
-                  <label for="tune_pid_d" style="display:inline-block;width:50px;font-size:12px;">D</label>
-                  <input type="number" id="tune_pid_d" step="0.00001" class="form-control input-sm" style="width:140px;">
-                </div>
-              </fieldset>
-
-              <fieldset style="margin-bottom:4px;" data-modes="center_line center_line_with_angle two_edges two_contours">
-                <legend style="font-size:13px;margin-bottom:4px;">Steering PWM endpoints</legend>
-                <div class="form-group form-inline" style="margin-bottom:2px;">
-                  <label for="tune_steering_left_pwm" style="display:inline-block;width:50px;font-size:12px;">L</label>
-                  <input type="number" id="tune_steering_left_pwm" min="0" max="4095" step="1" class="form-control input-sm" style="width:120px;">
-                </div>
-                <div class="form-group form-inline" style="margin-bottom:2px;">
-                  <label for="tune_steering_right_pwm" style="display:inline-block;width:50px;font-size:12px;">R</label>
-                  <input type="number" id="tune_steering_right_pwm" min="0" max="4095" step="1" class="form-control input-sm" style="width:120px;">
-                </div>
-                <p class="text-muted" style="margin-top:4px;margin-bottom:0;"><small>Hue is OpenCV-style 0&ndash;179. Changes apply live; restart to revert to <code>myconfig.py</code>. Steering endpoints are PCA9685 12-bit (0&ndash;4095).</small></p>
-              </fieldset>
+              </div>
 
             </div>
           </div>

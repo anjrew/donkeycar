@@ -233,6 +233,7 @@ var driveHandler = new function() {
 
       // ====== Tuning panel bindings ======
       bindTuningSliders();
+      bindTuningSectionCollapse();
       $('#copy-snippet-btn').on('click', function() {
         fetch('/tuning/snippet')
           .then(function(r) { return r.text(); })
@@ -331,6 +332,26 @@ var driveHandler = new function() {
             var allowed = (el.dataset.modes || '').split(/\s+/);
             el.style.display = allowed.indexOf(mode) >= 0 ? '' : 'none';
         }
+    }
+
+    // Persist each tuning subsection's collapsed/expanded state in localStorage
+    // so the user can hide everything except the one knob they're working on,
+    // and that layout survives a page reload.
+    function bindTuningSectionCollapse() {
+        var $sections = $('#tuning-body .panel-collapse[id^="tune-sec-"]');
+        $sections.each(function() {
+            var id = this.id;
+            var key = 'tuneCollapse:' + id;
+            if (localStorage.getItem(key) === 'collapsed') {
+                $(this).removeClass('in');
+            }
+        });
+        $sections.on('shown.bs.collapse', function() {
+            localStorage.setItem('tuneCollapse:' + this.id, 'expanded');
+        });
+        $sections.on('hidden.bs.collapse', function() {
+            localStorage.setItem('tuneCollapse:' + this.id, 'collapsed');
+        });
     }
 
     function paintTuningUI() {

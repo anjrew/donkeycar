@@ -149,6 +149,9 @@ body {
   border: 1px solid #e5e5e5;
   border-radius: 3px;
 }
+/* Rendered as <button type="button"> so it's keyboard-focusable and
+   announces correctly to assistive tech — overrides default UA button
+   styling (border, default font/alignment) to keep the previous look. */
 .tune-section-heading {
   cursor: pointer;
   padding: 4px 8px;
@@ -159,6 +162,15 @@ body {
   align-items: center;
   justify-content: space-between;
   user-select: none;
+  width: 100%;
+  border: 0;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+}
+.tune-section-heading:focus {
+  outline: 2px solid #66afe9;
+  outline-offset: -2px;
 }
 .tune-section-heading:hover {
   background-color: #ececec;

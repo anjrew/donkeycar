@@ -336,21 +336,36 @@ var driveHandler = new function() {
 
     // Persist each tuning subsection's collapsed/expanded state in localStorage
     // so the user can hide everything except the one knob they're working on,
-    // and that layout survives a page reload.
+    // and that layout survives a page reload. localStorage is wrapped in
+    // try/catch because Safari private mode and some embedded WebViews throw
+    // SecurityError on access — we still want the panel usable, just without
+    // persistence. Restore goes through Bootstrap's collapse plugin (not raw
+    // class manipulation) so aria-expanded on the trigger is set correctly
+    // and the chevron CSS (which keys off aria-expanded) stays in sync.
+    function safeStorageGet(key) {
+        try { return localStorage.getItem(key); }
+        catch (e) { return null; }
+    }
+    function safeStorageSet(key, value) {
+        try { localStorage.setItem(key, value); }
+        catch (e) { /* private mode / blocked storage — silently no-op */ }
+    }
+
     function bindTuningSectionCollapse() {
         var $sections = $('#tuning-body .panel-collapse[id^="tune-sec-"]');
         $sections.each(function() {
-            var id = this.id;
-            var key = 'tuneCollapse:' + id;
-            if (localStorage.getItem(key) === 'collapsed') {
-                $(this).removeClass('in');
-            }
+            var saved = safeStorageGet('tuneCollapse:' + this.id);
+            // Initialize the plugin without toggling, then explicitly hide/show
+            // so Bootstrap updates aria-expanded and the .collapsed class on
+            // the trigger.
+            $(this).collapse({ toggle: false })
+                   .collapse(saved === 'collapsed' ? 'hide' : 'show');
         });
         $sections.on('shown.bs.collapse', function() {
-            localStorage.setItem('tuneCollapse:' + this.id, 'expanded');
+            safeStorageSet('tuneCollapse:' + this.id, 'expanded');
         });
         $sections.on('hidden.bs.collapse', function() {
-            localStorage.setItem('tuneCollapse:' + this.id, 'collapsed');
+            safeStorageSet('tuneCollapse:' + this.id, 'collapsed');
         });
     }
 

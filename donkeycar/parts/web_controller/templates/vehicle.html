@@ -87,10 +87,10 @@
                    (data-toggle on the heading toggles the matching panel-collapse
                    body). State is persisted per-section by bindTuningSectionCollapse(). -->
               <div class="tune-section">
-                <div class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-mode">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-mode">
                   <span class="tune-section-title">Detection mode</span>
                   <span class="tune-section-chevron">&#9662;</span>
-                </div>
+                </button>
                 <div id="tune-sec-mode" class="panel-collapse collapse in">
                   <div class="tune-section-body">
                     <div class="btn-group btn-group-sm" data-toggle="buttons" id="tune_mode_group">
@@ -104,10 +104,10 @@
               </div>
 
               <div class="tune-section" data-modes="center_line center_line_with_angle">
-                <div class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-center-hsv">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-center-hsv">
                   <span class="tune-section-title">Center line HSV</span>
                   <span class="tune-section-chevron">&#9662;</span>
-                </div>
+                </button>
                 <div id="tune-sec-center-hsv" class="panel-collapse collapse in">
                   <div class="tune-section-body">
                     {% for bound in ['low', 'high'] %}
@@ -124,10 +124,10 @@
               </div>
 
               <div class="tune-section" data-modes="two_edges two_contours">
-                <div class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-edge-hsv">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-edge-hsv">
                   <span class="tune-section-title">Edge HSV</span>
                   <span class="tune-section-chevron">&#9662;</span>
-                </div>
+                </button>
                 <div id="tune-sec-edge-hsv" class="panel-collapse collapse in">
                   <div class="tune-section-body">
                     {% for bound in ['low', 'high'] %}
@@ -144,10 +144,10 @@
               </div>
 
               <div class="tune-section" data-modes="two_edges two_contours">
-                <div class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-fallback">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-fallback">
                   <span class="tune-section-title">Two-edge fallback</span>
                   <span class="tune-section-chevron">&#9662;</span>
-                </div>
+                </button>
                 <div id="tune-sec-fallback" class="panel-collapse collapse in">
                   <div class="tune-section-body">
                     <div class="form-group" style="margin-bottom:2px;">
@@ -161,10 +161,10 @@
               </div>
 
               <div class="tune-section" data-modes="center_line center_line_with_angle two_edges two_contours">
-                <div class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-scan">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-scan">
                   <span class="tune-section-title">Scan region (pixels)</span>
                   <span class="tune-section-chevron">&#9662;</span>
-                </div>
+                </button>
                 <div id="tune-sec-scan" class="panel-collapse collapse in">
                   <div class="tune-section-body">
                     <div class="form-group" style="margin-bottom:2px;">
@@ -182,10 +182,10 @@
               </div>
 
               <div class="tune-section" data-modes="center_line center_line_with_angle two_edges two_contours">
-                <div class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-throttle">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-throttle">
                   <span class="tune-section-title">Throttle limits</span>
                   <span class="tune-section-chevron">&#9662;</span>
-                </div>
+                </button>
                 <div id="tune-sec-throttle" class="panel-collapse collapse in">
                   <div class="tune-section-body">
                     <div class="form-group" style="margin-bottom:2px;">
@@ -203,10 +203,10 @@
               </div>
 
               <div class="tune-section" data-modes="center_line center_line_with_angle two_edges two_contours">
-                <div class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-pid">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-pid">
                   <span class="tune-section-title">PID</span>
                   <span class="tune-section-chevron">&#9662;</span>
-                </div>
+                </button>
                 <div id="tune-sec-pid" class="panel-collapse collapse in">
                   <div class="tune-section-body">
                     <div class="form-group form-inline" style="margin-bottom:2px;">
@@ -226,10 +226,10 @@
               </div>
 
               <div class="tune-section" data-modes="center_line center_line_with_angle two_edges two_contours">
-                <div class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-steering">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-steering">
                   <span class="tune-section-title">Steering PWM endpoints</span>
                   <span class="tune-section-chevron">&#9662;</span>
-                </div>
+                </button>
                 <div id="tune-sec-steering" class="panel-collapse collapse in">
                   <div class="tune-section-body">
                     <div class="form-group form-inline" style="margin-bottom:2px;">

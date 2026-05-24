@@ -389,7 +389,7 @@ class TubHandler:
         self.path = os.path.expanduser(path)
 
     def get_tub_list(self, path):
-        folders = next(os.walk(path))[1]
+        folders = next(os.walk(path), (None, [], []))[1]
         return folders
 
     def next_tub_number(self, path):

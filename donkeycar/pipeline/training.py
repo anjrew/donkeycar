@@ -1,5 +1,6 @@
 import math
 import os
+import random
 from time import time
 from typing import List, Dict, Union, Tuple
 import logging
@@ -42,6 +43,32 @@ class BatchSequence(object):
         self.transformation = ImageTransformations(config, 'TRANSFORMATIONS')
         self.post_transformation = ImageTransformations(config,
                                                         'POST_TRANSFORMATIONS')
+        # Horizontal mirror is label-aware: it must flip the steering label
+        # too, so it's handled here (not inside the albumentations Compose,
+        # which only sees the image). Decision is sticky per record so x and y
+        # always agree.
+        aug_list = list(getattr(config, 'AUGMENTATIONS', []) or [])
+        # Label-aware mirror only makes sense for single-record models. For
+        # sequence-based models (KerasLSTM, Keras3D_CNN, KerasMemory) a
+        # TubRecord becomes a List[TubRecord] and steering is packed into
+        # composite output keys (e.g. 'model_outputs'/'outputs') that we
+        # can't safely negate, so we disable HORIZONTAL_FLIP there with a
+        # warning rather than mis-train the model.
+        wants_mirror = is_train and 'HORIZONTAL_FLIP' in aug_list
+        is_sequence_model = getattr(model, 'seq_size', lambda: 0)() > 0
+        if wants_mirror and is_sequence_model:
+            logger.warning(
+                "HORIZONTAL_FLIP requested but model %s is sequence-based; "
+                "disabling label-aware mirror for this run.",
+                type(model).__name__)
+        self._mirror_enabled = wants_mirror and not is_sequence_model
+        self._mirror_prob = float(getattr(config, 'AUG_HFLIP_PROB', 0.5))
+        self._mirror_rng = random.Random(
+            getattr(config, 'AUG_HFLIP_SEED', 0xD0))
+        # id(record) -> bool. Using an external dict rather than setattr
+        # so the cache works for any record-like object (including frozen
+        # tuples, lists of records, or objects without __dict__).
+        self._mirror_decisions: Dict[int, bool] = {}
         self.pipeline = self._create_pipeline()
 
     def __len__(self) -> int:
@@ -61,13 +88,35 @@ class BatchSequence(object):
 
         return img_arr
 
+    def _should_mirror(self, record) -> bool:
+        """ Sticky per-record coin flip for the horizontal-mirror augmentation.
+        Decided once on first touch and cached by record identity so get_x
+        and get_y always agree, and so the flip stays stable across epochs
+        (which matters when CACHE_IMAGES is on). Using id(record) keeps this
+        safe for records that don't accept attribute assignment (e.g. tuples
+        or list-of-record sequences). """
+        if not self._mirror_enabled:
+            return False
+        key = id(record)
+        cached = self._mirror_decisions.get(key)
+        if cached is not None:
+            return cached
+        decision = self._mirror_rng.random() < self._mirror_prob
+        self._mirror_decisions[key] = decision
+        return decision
+
     def _create_pipeline(self) -> TfmIterator:
         """ This can be overridden if more complicated pipelines are
             required """
         # 1. Initialise TubRecord -> x, y transformations
         def get_x(record: TubRecord) -> Dict[str, Union[float, np.ndarray]]:
             """ Extracting x from record for training"""
+            mirror = self._should_mirror(record)
             out_dict = self.model.x_transform(record, self.image_processor)
+            if mirror and isinstance(out_dict.get('img_in'), np.ndarray):
+                # Flip horizontally along the width axis.
+                out_dict['img_in'] = np.ascontiguousarray(
+                    out_dict['img_in'][:, ::-1, ...])
             # apply the normalisation here on the fly to go from uint8 -> float
             out_dict['img_in'] = normalize_image(out_dict['img_in'])
             return out_dict
@@ -75,6 +124,28 @@ class BatchSequence(object):
         def get_y(record: TubRecord) -> Dict[str, Union[float, np.ndarray]]:
             """ Extracting y from record for training """
             y = self.model.y_transform(record)
+            if self._should_mirror(record):
+                # Negate steering. The label key varies by model type:
+                #   KerasLinear / KerasInferred / KerasMemory -> 'n_outputs0'
+                #   KerasCategorical / KerasBehavioral       -> 'angle_out'
+                #   KerasIMU                                  -> 'out_0'
+                #   KerasLocalizer                            -> 'angle'
+                # Anything matching these steering keys gets negated;
+                # throttle keys and one-hot location are left alone.
+                steering_keys = {
+                    'n_outputs0', 'angle_out', 'out_0', 'angle',
+                    'steering', 'user/angle',
+                }
+                for key in list(y.keys()):
+                    if key in steering_keys:
+                        val = y[key]
+                        if isinstance(val, (int, float)):
+                            y[key] = -val
+                        elif isinstance(val, np.ndarray):
+                            # 1-D categorical bin: reverse the histogram.
+                            # Scalar / regression: negate the value.
+                            y[key] = val[::-1].copy() \
+                                if val.ndim == 1 else -val
             return y
 
         # 2. Build pipeline using the transformations

@@ -514,7 +514,17 @@ def get_model_by_type(model_type: str, cfg: 'Config') -> Union['KerasPilot', 'Fa
 
     used_model_type = EqMemorizedString(used_model_type)
     if used_model_type == "linear":
-        kl = KerasLinear(interpreter=interpreter, input_shape=input_shape)
+        # Optional architecture overrides from cfg. Defaults preserve the
+        # historical KerasLinear net.
+        arch = {}
+        if hasattr(cfg, 'NN_DROPOUT'):
+            arch['dropout'] = cfg.NN_DROPOUT
+        if hasattr(cfg, 'NN_CONV_FILTERS'):
+            arch['conv_filters'] = cfg.NN_CONV_FILTERS
+        if hasattr(cfg, 'NN_DENSE_SIZES'):
+            arch['dense_sizes'] = cfg.NN_DENSE_SIZES
+        kl = KerasLinear(interpreter=interpreter, input_shape=input_shape,
+                         arch=arch or None)
     elif used_model_type == "categorical":
         kl = KerasCategorical(
             interpreter=interpreter,

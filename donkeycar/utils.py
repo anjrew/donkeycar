@@ -515,14 +515,19 @@ def get_model_by_type(model_type: str, cfg: 'Config') -> Union['KerasPilot', 'Fa
     used_model_type = EqMemorizedString(used_model_type)
     if used_model_type == "linear":
         # Optional architecture overrides from cfg. Defaults preserve the
-        # historical KerasLinear net.
+        # historical KerasLinear net. Only forward overrides that are
+        # actually set to a non-None value, otherwise a placeholder
+        # ``NN_DROPOUT = None`` in config would silently produce a
+        # nonsensical arch dict.
         arch = {}
-        if hasattr(cfg, 'NN_DROPOUT'):
-            arch['dropout'] = cfg.NN_DROPOUT
-        if hasattr(cfg, 'NN_CONV_FILTERS'):
-            arch['conv_filters'] = cfg.NN_CONV_FILTERS
-        if hasattr(cfg, 'NN_DENSE_SIZES'):
-            arch['dense_sizes'] = cfg.NN_DENSE_SIZES
+        for cfg_key, arch_key in (
+                ('NN_DROPOUT', 'dropout'),
+                ('NN_CONV_FILTERS', 'conv_filters'),
+                ('NN_DENSE_SIZES', 'dense_sizes'),
+        ):
+            val = getattr(cfg, cfg_key, None)
+            if val is not None:
+                arch[arch_key] = val
         kl = KerasLinear(interpreter=interpreter, input_shape=input_shape,
                          arch=arch or None)
     elif used_model_type == "categorical":

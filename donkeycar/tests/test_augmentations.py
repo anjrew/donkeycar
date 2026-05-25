@@ -125,6 +125,7 @@ class TestMirrorLabelFlip(unittest.TestCase):
         seq._mirror_prob = mirror_prob
         import random as _random
         seq._mirror_rng = _random.Random(42)
+        seq._mirror_decisions = {}
         return seq
 
     def test_mirror_decision_is_sticky(self):

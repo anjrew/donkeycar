@@ -68,6 +68,13 @@ class TestNewAugmentations(unittest.TestCase):
     def test_downscale(self):
         self._run_one('DOWNSCALE', AUG_DOWNSCALE_MIN=0.5, AUG_DOWNSCALE_MAX=0.9)
 
+    def test_hue_saturation(self):
+        self._run_one('HUE_SATURATION', AUG_HUE_SHIFT_LIMIT=20,
+                      AUG_SAT_SHIFT_LIMIT=30, AUG_VAL_SHIFT_LIMIT=20)
+
+    def test_invert(self):
+        self._run_one('INVERT')
+
     def test_per_aug_prob_override(self):
         # AUG_<NAME>_PROB=0 should make the aug never fire even though the
         # global prob arg is 1.0.

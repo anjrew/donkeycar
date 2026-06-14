@@ -141,6 +141,21 @@ class ImageAugmentation:
             return A.Downscale(scale_min=scale_min, scale_max=scale_max,
                                p=prob, always_apply=always)
 
+        elif aug_type == 'HUE_SATURATION':
+            # Shifts hue / saturation / value — colour + white-balance jitter.
+            hue = getattr(config, 'AUG_HUE_SHIFT_LIMIT', 20)
+            sat = getattr(config, 'AUG_SAT_SHIFT_LIMIT', 30)
+            val = getattr(config, 'AUG_VAL_SHIFT_LIMIT', 20)
+            logger.info(f'Creating augmentation {aug_type} h={hue} s={sat} v={val}')
+            return A.HueSaturationValue(
+                hue_shift_limit=hue, sat_shift_limit=sat, val_shift_limit=val,
+                p=prob, always_apply=always)
+
+        elif aug_type == 'INVERT':
+            # Inverts colours (255 - pixel). Drastic; keep prob low via AUG_INVERT_PROB.
+            logger.info(f'Creating augmentation {aug_type}')
+            return A.InvertImg(p=prob, always_apply=always)
+
         logger.warning(f'Unknown augmentation type: {aug_type}')
         return None
 

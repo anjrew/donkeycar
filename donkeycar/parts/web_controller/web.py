@@ -43,6 +43,10 @@ def _default_tuning():
         'throttle_min': 0.0, 'throttle_max': 1.0,
         'scan_y': 0, 'scan_height': 0,
         'steering_left_pwm': 0, 'steering_right_pwm': 0,
+        'throttle_forward_pwm': 0, 'throttle_stopped_pwm': 0,
+        'throttle_reverse_pwm': 0,
+        'steering_scale': 1.0, 'throttle_scale': 1.0,
+        'ai_throttle_mult': 1.0,
         'line_follower_mode': 'center_line',
         'half_track_width_px': 80,
     }
@@ -104,13 +108,32 @@ def _validate_tuning_patch(patch, current):
                     reject(k, 'negative')
                     continue
                 clean[k] = iv
-            elif k in ('steering_left_pwm', 'steering_right_pwm'):
+            elif k in ('steering_left_pwm', 'steering_right_pwm',
+                       'throttle_forward_pwm', 'throttle_stopped_pwm',
+                       'throttle_reverse_pwm'):
                 iv = int(v)
                 # PCA9685 12-bit values: 0..4095. Reject anything outside.
                 if not (0 <= iv <= 4095):
                     reject(k, 'out of range 0..4095')
                     continue
                 clean[k] = iv
+            elif k in ('steering_scale', 'throttle_scale'):
+                fv = float(v)
+                # Frequency-compensation multiplier on the PulseController.
+                # Default 1.0; clamp to a sane band to guard fat-fingering.
+                if not math.isfinite(fv):
+                    reject(k, 'not finite')
+                    continue
+                clean[k] = _clamp(fv, 0.5, 2.0)
+            elif k == 'ai_throttle_mult':
+                fv = float(v)
+                # Scales the NN pilot's throttle in autopilot. Clamp to a
+                # sane band so a fat-fingered slider can't command runaway
+                # speed; 0 = stop, 5 = 5x the model's predicted throttle.
+                if not math.isfinite(fv):
+                    reject(k, 'not finite')
+                    continue
+                clean[k] = _clamp(fv, 0.0, 5.0)
             elif k == 'line_follower_mode':
                 if v not in _LINE_FOLLOWER_MODES:
                     reject(k, f'must be one of {_LINE_FOLLOWER_MODES}')
@@ -164,6 +187,11 @@ def _render_myconfig_snippet(t):
         '# Update these inside the PWM_STEERING_THROTTLE dict in myconfig.py:',
         f'#   "STEERING_LEFT_PWM":  {int(t["steering_left_pwm"])},',
         f'#   "STEERING_RIGHT_PWM": {int(t["steering_right_pwm"])},',
+        f'#   "THROTTLE_FORWARD_PWM": {int(t["throttle_forward_pwm"])},',
+        f'#   "THROTTLE_STOPPED_PWM": {int(t["throttle_stopped_pwm"])},',
+        f'#   "THROTTLE_REVERSE_PWM": {int(t["throttle_reverse_pwm"])},',
+        f'#   "PWM_STEERING_SCALE": {t["steering_scale"]!r},',
+        f'#   "PWM_THROTTLE_SCALE": {t["throttle_scale"]!r},',
         '',
     ]
     return '\n'.join(lines)

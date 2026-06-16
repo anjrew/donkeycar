@@ -1,3 +1,4 @@
+import copy
 import math
 import os
 import random
@@ -36,7 +37,6 @@ class BatchSequence(object):
                  is_train: bool) -> None:
         self.model = model
         self.config = config
-        self.sequence = TubSequence(records)
         self.batch_size = self.config.BATCH_SIZE
         self.is_train = is_train
         self.augmentation = ImageAugmentation(config, 'AUGMENTATIONS')
@@ -45,8 +45,11 @@ class BatchSequence(object):
                                                         'POST_TRANSFORMATIONS')
         # Horizontal mirror is label-aware: it must flip the steering label
         # too, so it's handled here (not inside the albumentations Compose,
-        # which only sees the image). Decision is sticky per record so x and y
-        # always agree.
+        # which only sees the image). We treat the mirror as synthetic data:
+        # every training record is emitted twice — once as-is, once mirrored —
+        # so the flip *adds* a sample rather than *replacing* the original. See
+        # _build_records. The per-record decision is keyed by id() so get_x and
+        # get_y always agree and stays stable across epochs.
         aug_list = list(getattr(config, 'AUGMENTATIONS', []) or [])
         # Label-aware mirror only makes sense for single-record models. For
         # sequence-based models (KerasLSTM, Keras3D_CNN, KerasMemory) a
@@ -62,14 +65,40 @@ class BatchSequence(object):
                 "disabling label-aware mirror for this run.",
                 type(model).__name__)
         self._mirror_enabled = wants_mirror and not is_sequence_model
-        self._mirror_prob = float(getattr(config, 'AUG_HFLIP_PROB', 0.5))
-        self._mirror_rng = random.Random(
-            getattr(config, 'AUG_HFLIP_SEED', 0xD0))
         # id(record) -> bool. Using an external dict rather than setattr
         # so the cache works for any record-like object (including frozen
         # tuples, lists of records, or objects without __dict__).
         self._mirror_decisions: Dict[int, bool] = {}
+        self.sequence = TubSequence(self._build_records(records))
         self.pipeline = self._create_pipeline()
+
+    def _build_records(self, records: List[TubRecord]) -> List[TubRecord]:
+        """ Doubles the training set when the label-aware mirror is enabled.
+
+        Each record is emitted twice: the original (mirror -> False) and a
+        shallow-copied twin (mirror -> True). The twin is a distinct TubRecord
+        instance, so it carries its own image cache and gets an independent
+        augmentation draw before being flipped — i.e. the mirror is real
+        synthetic data, not a coin-flip replacement of the original. The
+        doubled list is shuffled once (deterministically) so originals and
+        their mirror twins don't land adjacent in every batch.
+
+        When the mirror is disabled (validation, sequence models, or no
+        HORIZONTAL_FLIP) the records pass through unchanged. """
+        if not self._mirror_enabled:
+            return records
+        doubled: List[TubRecord] = []
+        for record in records:
+            twin = copy.copy(record)  # distinct id(), own _image cache
+            self._mirror_decisions[id(record)] = False
+            self._mirror_decisions[id(twin)] = True
+            doubled.append(record)
+            doubled.append(twin)
+        random.Random(getattr(self.config, 'AUG_HFLIP_SEED', 0xD0)) \
+            .shuffle(doubled)
+        logger.info('HORIZONTAL_FLIP doubling: %d records -> %d '
+                    '(original + mirror)', len(records), len(doubled))
+        return doubled
 
     def __len__(self) -> int:
         return math.ceil(len(self.pipeline) / self.batch_size)
@@ -89,21 +118,15 @@ class BatchSequence(object):
         return img_arr
 
     def _should_mirror(self, record) -> bool:
-        """ Sticky per-record coin flip for the horizontal-mirror augmentation.
-        Decided once on first touch and cached by record identity so get_x
-        and get_y always agree, and so the flip stays stable across epochs
-        (which matters when CACHE_IMAGES is on). Using id(record) keeps this
-        safe for records that don't accept attribute assignment (e.g. tuples
-        or list-of-record sequences). """
-        if not self._mirror_enabled:
-            return False
-        key = id(record)
-        cached = self._mirror_decisions.get(key)
-        if cached is not None:
-            return cached
-        decision = self._mirror_rng.random() < self._mirror_prob
-        self._mirror_decisions[key] = decision
-        return decision
+        """ Whether this record instance is a mirror twin. _build_records emits
+        each training record twice — the original (-> False) and a shallow copy
+        (-> True) — and records the decision here keyed by id(record), so get_x
+        and get_y always agree and the flip is stable across epochs (which
+        matters when CACHE_IMAGES is on). Using id() keeps this safe for records
+        that don't accept attribute assignment (e.g. tuples or list-of-record
+        sequences). Anything not registered (validation, sequence models) is
+        never mirrored. """
+        return self._mirror_decisions.get(id(record), False)
 
     def _create_pipeline(self) -> TfmIterator:
         """ This can be overridden if more complicated pipelines are

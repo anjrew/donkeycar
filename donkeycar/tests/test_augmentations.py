@@ -108,70 +108,67 @@ class TestNewAugmentations(unittest.TestCase):
         self.assertEqual(out.shape, (32, 48, 3))
 
 
-class TestMirrorLabelFlip(unittest.TestCase):
-    """The label-aware mirror in BatchSequence must agree between x and y."""
+class _R:
+    """Stand-in record. copy.copy() gives it a fresh identity, like a
+    shallow-copied TubRecord."""
+    def __init__(self, i=0):
+        self.i = i
 
-    def _make_seq(self, mirror_prob=1.0):
+
+class TestMirrorDoubling(unittest.TestCase):
+    """HORIZONTAL_FLIP is treated as synthetic data: _build_records emits every
+    training record twice (original + mirror), doubling the set, and the x/y
+    mirror decision must agree per record instance."""
+
+    def _make_seq(self, enabled=True):
         # Import here to keep tensorflow off the import path for the
         # other tests.
         from donkeycar.pipeline.training import BatchSequence
 
-        cfg = _cfg(
-            AUGMENTATIONS=['HORIZONTAL_FLIP'],
-            AUG_HFLIP_PROB=mirror_prob,
-            AUG_HFLIP_SEED=42,
-            TRANSFORMATIONS=[],
-            POST_TRANSFORMATIONS=[],
-            BATCH_SIZE=1,
-        )
+        cfg = _cfg(AUG_HFLIP_SEED=42)
         # Bypass __init__ to skip TubSequence (it needs real records).
         seq = BatchSequence.__new__(BatchSequence)
         seq.config = cfg
         seq.is_train = True
-        seq._mirror_enabled = True
-        seq._mirror_prob = mirror_prob
-        import random as _random
-        seq._mirror_rng = _random.Random(42)
+        seq._mirror_enabled = enabled
         seq._mirror_decisions = {}
         return seq
 
-    def test_mirror_decision_is_sticky(self):
-        seq = self._make_seq(mirror_prob=0.5)
+    def test_build_records_doubles_and_tags(self):
+        seq = self._make_seq(enabled=True)
+        records = [_R(0), _R(1), _R(2)]
+        doubled = seq._build_records(records)
 
-        class _R:
-            pass
+        # N -> 2N, all distinct objects.
+        self.assertEqual(len(doubled), 6)
+        self.assertEqual(len({id(r) for r in doubled}), 6)
 
-        r = _R()
-        first = seq._should_mirror(r)
-        # Repeated calls must return the same decision.
-        for _ in range(10):
-            self.assertEqual(seq._should_mirror(r), first)
+        originals = [r for r in doubled if not seq._should_mirror(r)]
+        twins = [r for r in doubled if seq._should_mirror(r)]
+        self.assertEqual(len(originals), 3)
+        self.assertEqual(len(twins), 3)
+        # Each payload appears once as an original and once as a mirror twin.
+        self.assertEqual(sorted(r.i for r in originals), [0, 1, 2])
+        self.assertEqual(sorted(r.i for r in twins), [0, 1, 2])
 
-    def test_mirror_always_when_prob_is_one(self):
-        seq = self._make_seq(mirror_prob=1.0)
+    def test_should_mirror_agrees_per_instance(self):
+        seq = self._make_seq(enabled=True)
+        doubled = seq._build_records([_R(), _R()])
+        for r in doubled:
+            first = seq._should_mirror(r)
+            for _ in range(5):
+                self.assertEqual(seq._should_mirror(r), first)
 
-        class _R:
-            pass
+    def test_disabled_passes_through_without_doubling(self):
+        seq = self._make_seq(enabled=False)
+        records = [_R(), _R()]
+        out = seq._build_records(records)
+        self.assertIs(out, records)
+        for r in out:
+            self.assertFalse(seq._should_mirror(r))
 
-        for _ in range(20):
-            self.assertTrue(seq._should_mirror(_R()))
-
-    def test_mirror_never_when_prob_is_zero(self):
-        seq = self._make_seq(mirror_prob=0.0)
-
-        class _R:
-            pass
-
-        for _ in range(20):
-            self.assertFalse(seq._should_mirror(_R()))
-
-    def test_mirror_disabled_when_not_training(self):
-        seq = self._make_seq(mirror_prob=1.0)
-        seq._mirror_enabled = False
-
-        class _R:
-            pass
-
+    def test_unregistered_record_is_never_mirrored(self):
+        seq = self._make_seq(enabled=True)
         self.assertFalse(seq._should_mirror(_R()))
 
 

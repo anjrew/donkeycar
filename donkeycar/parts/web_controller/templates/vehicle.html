@@ -76,10 +76,24 @@
           <div class="panel-heading" style="cursor:pointer;" data-toggle="collapse" data-target="#tuning-body">
             <h4 class="panel-title" style="display:inline-block;">Tuning &#9662;</h4>
             <button type="button" id="copy-snippet-btn" class="btn btn-xs btn-default pull-right" onclick="event.stopPropagation();">Copy myconfig snippet</button>
+            <button type="button" id="paste-snippet-btn" class="btn btn-xs btn-default pull-right" style="margin-right:6px;" onclick="event.stopPropagation();">Paste myconfig snippet</button>
             <span id="tuning-status" class="pull-right" style="margin-right:10px;color:#888;"></span>
           </div>
           <div id="tuning-body" class="panel-collapse collapse in">
             <div class="panel-body" style="padding:8px;">
+
+              <!-- Paste box for loading a saved myconfig snippet back into the
+                   live tuning panel. Toggled by #paste-snippet-btn; the pasted
+                   text is POSTed to /tuning/snippet, parsed server-side, and
+                   applied via the same validate/broadcast path as the sliders. -->
+              <div id="paste-snippet-box" style="display:none;margin-bottom:8px;">
+                <textarea id="paste-snippet-text" class="form-control" rows="6" style="font-family:monospace;font-size:12px;" placeholder="Paste a myconfig snippet (or a PWM_STEERING_THROTTLE block) here, then click Apply."></textarea>
+                <div style="margin-top:4px;">
+                  <button type="button" id="apply-snippet-btn" class="btn btn-xs btn-primary">Apply</button>
+                  <button type="button" id="cancel-snippet-btn" class="btn btn-xs btn-default">Cancel</button>
+                </div>
+              </div>
+
 
               <!-- Mode selector — controls which subsections below are visible
                    (see applyModeVisibility in main.js). Each subsection below

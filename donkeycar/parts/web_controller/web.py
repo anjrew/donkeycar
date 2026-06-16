@@ -60,7 +60,9 @@ def _validate_tuning_patch(patch, current):
     """
     Sanitize a {key: value} patch against the current tuning dict.
     Returns (clean_patch, rejections) where rejections is a list of
-    {key, reason} for keys that were dropped or clamped.
+    {key, reason} for keys that were dropped (rejected outright).
+    In-range coercion such as clamping a value to its valid bounds is
+    applied silently and is NOT recorded in rejections.
 
     Validation rules:
       - HSV arrays: length-3 ints. H clamped to 0..179, S/V to 0..255.
@@ -73,6 +75,9 @@ def _validate_tuning_patch(patch, current):
     """
     clean = {}
     rejections = []
+    if not isinstance(patch, dict):
+        return clean, [{'key': '_patch',
+                        'reason': 'expected an object of {key: value} pairs'}]
     hsv_keys = ('hsv_center_low', 'hsv_center_high',
                 'hsv_edge_low',   'hsv_edge_high')
     pid_keys = ('pid_p', 'pid_i', 'pid_d')
@@ -352,8 +357,9 @@ class LocalWebController(tornado.web.Application):
         snap the live drag handle to the just-committed value.
         """
         clean, rejections = _validate_tuning_patch(patch, self.tuning)
+        in_keys = list(patch.keys()) if isinstance(patch, dict) else patch
         logger.info("[tuning] apply_patch in=%s clean=%s rej=%s",
-                    list(patch.keys()), list(clean.keys()),
+                    in_keys, list(clean.keys()),
                     [r['key'] for r in rejections])
         if clean:
             self.tuning.update(clean)

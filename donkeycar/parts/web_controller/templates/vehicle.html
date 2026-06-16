@@ -245,6 +245,67 @@
                 </div>
               </div>
 
+              <div class="tune-section" data-modes="center_line center_line_with_angle two_edges two_contours">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-throttle-pwm">
+                  <span class="tune-section-title">Throttle PWM endpoints</span>
+                  <span class="tune-section-chevron">&#9662;</span>
+                </button>
+                <div id="tune-sec-throttle-pwm" class="panel-collapse collapse in">
+                  <div class="tune-section-body">
+                    <div class="form-group form-inline" style="margin-bottom:2px;">
+                      <label for="tune_throttle_forward_pwm" style="display:inline-block;width:70px;font-size:12px;">forward</label>
+                      <input type="number" id="tune_throttle_forward_pwm" min="0" max="4095" step="1" class="form-control input-sm" style="width:120px;">
+                    </div>
+                    <div class="form-group form-inline" style="margin-bottom:2px;">
+                      <label for="tune_throttle_stopped_pwm" style="display:inline-block;width:70px;font-size:12px;">stopped</label>
+                      <input type="number" id="tune_throttle_stopped_pwm" min="0" max="4095" step="1" class="form-control input-sm" style="width:120px;">
+                    </div>
+                    <div class="form-group form-inline" style="margin-bottom:2px;">
+                      <label for="tune_throttle_reverse_pwm" style="display:inline-block;width:70px;font-size:12px;">reverse</label>
+                      <input type="number" id="tune_throttle_reverse_pwm" min="0" max="4095" step="1" class="form-control input-sm" style="width:120px;">
+                    </div>
+                    <p class="text-muted" style="margin-top:4px;margin-bottom:0;"><small>Throttle endpoints are PCA9685 12-bit (0&ndash;4095).</small></p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tune-section" data-modes="center_line center_line_with_angle two_edges two_contours">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-pwm-scale">
+                  <span class="tune-section-title">PWM scale</span>
+                  <span class="tune-section-chevron">&#9662;</span>
+                </button>
+                <div id="tune-sec-pwm-scale" class="panel-collapse collapse in">
+                  <div class="tune-section-body">
+                    <div class="form-group form-inline" style="margin-bottom:2px;">
+                      <label for="tune_steering_scale" style="display:inline-block;width:70px;font-size:12px;">steering</label>
+                      <input type="number" id="tune_steering_scale" min="0.5" max="2" step="0.01" class="form-control input-sm" style="width:120px;">
+                    </div>
+                    <div class="form-group form-inline" style="margin-bottom:2px;">
+                      <label for="tune_throttle_scale" style="display:inline-block;width:70px;font-size:12px;">throttle</label>
+                      <input type="number" id="tune_throttle_scale" min="0.5" max="2" step="0.01" class="form-control input-sm" style="width:120px;">
+                    </div>
+                    <p class="text-muted" style="margin-top:4px;margin-bottom:0;"><small>Frequency-compensation multiplier (default 1.0, clamped 0.5&ndash;2.0).</small></p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tune-section" data-modes="center_line center_line_with_angle two_edges two_contours">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-ai-throttle">
+                  <span class="tune-section-title">AI throttle multiplier</span>
+                  <span class="tune-section-chevron">&#9662;</span>
+                </button>
+                <div id="tune-sec-ai-throttle" class="panel-collapse collapse in">
+                  <div class="tune-section-body">
+                    <div class="form-group" style="margin-bottom:2px;">
+                      <label for="tune_ai_throttle_mult" style="display:inline-block;width:110px;font-size:12px;">ai_throttle_mult</label>
+                      <input type="range" id="tune_ai_throttle_mult" min="0" max="5" step="0.1" style="display:inline-block;vertical-align:middle;width:45%;">
+                      <output for="tune_ai_throttle_mult" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                    </div>
+                    <p class="text-muted" style="margin-top:4px;margin-bottom:0;"><small>Scales the NN pilot's throttle in autopilot (default 1.0, clamped 0&ndash;5.0). No effect on CV line-follower modes.</small></p>
+                  </div>
+                </div>
+              </div>
+
             </div>
           </div>
         </div>

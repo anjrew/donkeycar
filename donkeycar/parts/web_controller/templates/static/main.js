@@ -53,6 +53,7 @@ var driveHandler = new function() {
         throttle_min: 0.0, throttle_max: 1.0,
         scan_y: 0, scan_height: 0,
         steering_left_pwm: 0, steering_right_pwm: 0,
+        ai_throttle_mult: 1.0,
         line_follower_mode: 'center_line',
         half_track_width_px: 80,
     };
@@ -408,7 +409,7 @@ var driveHandler = new function() {
 
         // Scan + throttle + half-track-width (scalar sliders)
         ['scan_y', 'scan_height', 'throttle_min', 'throttle_max',
-         'half_track_width_px'].forEach(function(key) {
+         'ai_throttle_mult', 'half_track_width_px'].forEach(function(key) {
             var v = tuningState[key];
             if (v === null || v === undefined) {
                 console.warn('[tuning] paint skipped key=', key, 'value=', v);
@@ -426,7 +427,9 @@ var driveHandler = new function() {
         // means the browser is happy with up to 5 decimals; the literal
         // round-trip via .val() is fine.
         ['pid_p', 'pid_i', 'pid_d',
-         'steering_left_pwm', 'steering_right_pwm'].forEach(function(key) {
+         'steering_left_pwm', 'steering_right_pwm',
+         'throttle_forward_pwm', 'throttle_stopped_pwm', 'throttle_reverse_pwm',
+         'steering_scale', 'throttle_scale'].forEach(function(key) {
             var v = tuningState[key];
             if (v === null || v === undefined || isNaN(v)) {
                 console.warn('[tuning] paint skipped', key, 'value=', v);
@@ -506,6 +509,7 @@ var driveHandler = new function() {
             {id: 'tune_scan_height',         key: 'scan_height',         parse: function(s) { return parseInt(s, 10); }},
             {id: 'tune_throttle_min',        key: 'throttle_min',        parse: parseFloat},
             {id: 'tune_throttle_max',        key: 'throttle_max',        parse: parseFloat},
+            {id: 'tune_ai_throttle_mult',    key: 'ai_throttle_mult',    parse: parseFloat},
             {id: 'tune_half_track_width_px', key: 'half_track_width_px', parse: function(s) { return parseInt(s, 10); }},
         ].forEach(function(s) {
             var $el = $('#' + s.id);
@@ -539,6 +543,11 @@ var driveHandler = new function() {
             {key: 'pid_d', parse: parseFloat},
             {key: 'steering_left_pwm',  parse: function(s) { return parseInt(s, 10); }},
             {key: 'steering_right_pwm', parse: function(s) { return parseInt(s, 10); }},
+            {key: 'throttle_forward_pwm', parse: function(s) { return parseInt(s, 10); }},
+            {key: 'throttle_stopped_pwm', parse: function(s) { return parseInt(s, 10); }},
+            {key: 'throttle_reverse_pwm', parse: function(s) { return parseInt(s, 10); }},
+            {key: 'steering_scale', parse: parseFloat},
+            {key: 'throttle_scale', parse: parseFloat},
         ];
         numericKeys.forEach(function(spec) {
             var $el = $('#tune_' + spec.key);

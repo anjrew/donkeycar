@@ -448,7 +448,8 @@ var driveHandler = new function() {
             });
         });
 
-        // Scan + throttle + half-track-width (scalar sliders)
+        // Scan + throttle + AI throttle/steering mult + half-track-width
+        // (scalar sliders)
         ['scan_y', 'scan_height', 'throttle_min', 'throttle_max',
          'ai_throttle_mult', 'ai_steering_mult', 'half_track_width_px'].forEach(function(key) {
             var v = tuningState[key];

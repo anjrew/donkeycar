@@ -578,8 +578,29 @@ class PCA9685:
                 return busnum
 
             I2C.get_default_bus = get_bus
-        self.pwm = Adafruit_PCA9685.PCA9685(address=address)
-        self.pwm.set_pwm_freq(frequency)
+        try:
+            self.pwm = Adafruit_PCA9685.PCA9685(address=address)
+            self.pwm.set_pwm_freq(frequency)
+        except OSError as e:
+            bus_for_hint = busnum if busnum is not None else 1
+            raise OSError(
+                f"Could not communicate with the PCA9685 PWM/servo controller "
+                f"at I2C address {hex(address)} on bus {bus_for_hint} "
+                f"(original error: {e}).\n"
+                "The Raspberry Pi could not reach the board over I2C. "
+                "Common causes and fixes:\n"
+                "  1. Wiring: check the SDA, SCL, VCC and GND connections "
+                "between the Pi and the PCA9685. A single loose jumper is the "
+                "most common cause of this error.\n"
+                "  2. Power: make sure the board's logic/VCC pin is powered "
+                "(3.3V or 5V depending on your board).\n"
+                f"  3. Address: confirm the configured I2C address "
+                f"({hex(address)}) matches the board. Run "
+                f"'i2cdetect -y {bus_for_hint}' to list the addresses actually "
+                "present on the bus.\n"
+                "  4. I2C enabled: enable I2C on the Pi via "
+                "'sudo raspi-config' > Interface Options > I2C, then reboot.\n"
+            ) from e
         self._frequency = frequency
 
     def get_frequency(self):

@@ -17,11 +17,27 @@ logger = logging.getLogger(__name__)
 # albumentations Compose (which only sees the image).
 LABEL_AWARE_AUGMENTATIONS = {'HORIZONTAL_FLIP'}
 
+# Augmentations that operate in colour space and require a 3-channel image.
+# When training a grayscale model (IMAGE_DEPTH == 1) the tub loader feeds
+# single-channel frames, so these are skipped: ISO_NOISE raises
+# "This transformation expects 3-channel images", and HUE_SATURATION is a pure
+# chroma op with nothing to act on. This lets the same AUGMENTATIONS list serve
+# both RGB and grayscale models.
+CHANNEL_3_ONLY_AUGMENTATIONS = {'ISO_NOISE', 'HUE_SATURATION'}
+
 
 class ImageAugmentation:
     def __init__(self, cfg, key, prob=0.5, always_apply=False):
-        aug_list = [a for a in getattr(cfg, key, [])
-                    if a not in LABEL_AWARE_AUGMENTATIONS]
+        skip = set(LABEL_AWARE_AUGMENTATIONS)
+        if getattr(cfg, 'IMAGE_DEPTH', 3) == 1:
+            skip |= CHANNEL_3_ONLY_AUGMENTATIONS
+        requested = list(getattr(cfg, key, []))
+        aug_list = [a for a in requested if a not in skip]
+        dropped = [a for a in requested
+                   if a in CHANNEL_3_ONLY_AUGMENTATIONS and a in skip]
+        if dropped:
+            logger.info(f'IMAGE_DEPTH=1: skipping colour-only augmentations '
+                        f'{dropped} (need 3-channel images)')
         # Each aug can override the global prob via AUG_<NAME>_PROB in config.
         augmentations = [
             ImageAugmentation.create(

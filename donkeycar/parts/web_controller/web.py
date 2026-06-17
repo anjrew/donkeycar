@@ -47,7 +47,7 @@ def _default_tuning():
         'throttle_forward_pwm': 0, 'throttle_stopped_pwm': 0,
         'throttle_reverse_pwm': 0,
         'steering_scale': 1.0, 'throttle_scale': 1.0,
-        'ai_throttle_mult': 1.0,
+        'ai_throttle_mult': 1.0, 'ai_steering_mult': 1.0,
         'line_follower_mode': 'center_line',
         'half_track_width_px': 80,
     }
@@ -140,6 +140,15 @@ def _validate_tuning_patch(patch, current):
                     reject(k, 'not finite')
                     continue
                 clean[k] = _clamp(fv, 0.0, 5.0)
+            elif k == 'ai_steering_mult':
+                fv = float(v)
+                # Scales the NN pilot's steering in autopilot. Clamp to a
+                # sane band so a fat-fingered slider can't invert or wildly
+                # amplify steering; 0 = straight, 2 = 2x the model's angle.
+                if not math.isfinite(fv):
+                    reject(k, 'not finite')
+                    continue
+                clean[k] = _clamp(fv, 0.0, 2.0)
             elif k == 'line_follower_mode':
                 if v not in _LINE_FOLLOWER_MODES:
                     reject(k, f'must be one of {_LINE_FOLLOWER_MODES}')

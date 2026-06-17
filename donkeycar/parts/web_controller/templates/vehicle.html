@@ -320,6 +320,23 @@
                 </div>
               </div>
 
+              <div class="tune-section" data-modes="center_line center_line_with_angle two_edges two_contours">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-ai-steering">
+                  <span class="tune-section-title">AI steering multiplier</span>
+                  <span class="tune-section-chevron">&#9662;</span>
+                </button>
+                <div id="tune-sec-ai-steering" class="panel-collapse collapse in">
+                  <div class="tune-section-body">
+                    <div class="form-group" style="margin-bottom:2px;">
+                      <label for="tune_ai_steering_mult" style="display:inline-block;width:110px;font-size:12px;">ai_steering_mult</label>
+                      <input type="range" id="tune_ai_steering_mult" min="0" max="2" step="0.05" style="display:inline-block;vertical-align:middle;width:45%;">
+                      <output for="tune_ai_steering_mult" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                    </div>
+                    <p class="text-muted" style="margin-top:4px;margin-bottom:0;"><small>Scales the NN pilot's steering in autopilot (default 1.0, clamped 0&ndash;2.0). No effect on CV line-follower modes.</small></p>
+                  </div>
+                </div>
+              </div>
+
             </div>
           </div>
         </div>

@@ -630,12 +630,45 @@ class ToggleRecording:
         return recording
 
 
+def find_web_controller(V):
+    """
+    Return the LocalWebController part that was added to vehicle ``V``,
+    or ``None`` if there isn't one. Used to give parts (e.g. DriveMode)
+    a live handle on the web tuning panel without threading the
+    controller reference through every helper signature.
+    """
+    for entry in V.parts:
+        if isinstance(entry['part'], LocalWebController):
+            return entry['part']
+    return None
+
+
 class DriveMode:
-    def __init__(self, ai_throttle_mult=1.0):
+    def __init__(self, ai_throttle_mult=1.0, ai_steering_mult=1.0,
+                 tuning_source=None):
         """
         :param ai_throttle_mult: scale throttle in autopilot mode
+        :param ai_steering_mult: scale steering in autopilot mode
+        :param tuning_source: optional object exposing a ``.tuning`` dict
+            (the LocalWebController). When provided, the multipliers are
+            read live from it each tick so the web panel sliders take
+            effect mid-drive; the constructor values are the fallback.
         """
         self.ai_throttle_mult = ai_throttle_mult
+        self.ai_steering_mult = ai_steering_mult
+        self.tuning_source = tuning_source
+
+    def _live(self, key, fallback):
+        """Live value from the tuning panel, falling back to config."""
+        src = self.tuning_source
+        if src is not None:
+            try:
+                val = src.tuning.get(key)
+            except AttributeError:
+                val = None
+            if val is not None:
+                return val
+        return fallback
 
     def run(self, mode,
             user_steering, user_throttle,
@@ -647,15 +680,19 @@ class DriveMode:
         :param user_throttle: throttle value in user (manual) mode
         :param pilot_steering: steering value in autopilot mode
         :param pilot_throttle: throttle value in autopilot mode
-        :return: tuple of (steering, throttle) where throttle is
-                 scaled by ai_throttle_mult in autopilot mode
+        :return: tuple of (steering, throttle); in autopilot the pilot
+                 steering/throttle are scaled by ai_steering_mult /
+                 ai_throttle_mult respectively.
         """
         if mode == 'user':
             return user_steering, user_throttle
-        elif mode == 'local_angle':
-            return pilot_steering if pilot_steering else 0.0, user_throttle
-        return (pilot_steering if pilot_steering else 0.0,
-               pilot_throttle * self.ai_throttle_mult if pilot_throttle else 0.0)
+        steering_mult = self._live('ai_steering_mult', self.ai_steering_mult)
+        steering = pilot_steering * steering_mult if pilot_steering else 0.0
+        if mode == 'local_angle':
+            return steering, user_throttle
+        throttle_mult = self._live('ai_throttle_mult', self.ai_throttle_mult)
+        throttle = pilot_throttle * throttle_mult if pilot_throttle else 0.0
+        return steering, throttle
 
 
 class UserPilotCondition:

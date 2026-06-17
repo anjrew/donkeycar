@@ -8,7 +8,8 @@ import numpy as np
 
 from donkeycar.config import Config
 from donkeycar.pipeline.augmentations import (
-    ImageAugmentation, LABEL_AWARE_AUGMENTATIONS)
+    ImageAugmentation, LABEL_AWARE_AUGMENTATIONS,
+    CHANNEL_3_ONLY_AUGMENTATIONS)
 
 
 def _cfg(**kwargs) -> Config:
@@ -106,6 +107,35 @@ class TestNewAugmentations(unittest.TestCase):
         # Should produce an image-shaped output regardless.
         out = aug.run(_img())
         self.assertEqual(out.shape, (32, 48, 3))
+
+    def _transform_class_names(self, aug):
+        return {t.__class__.__name__ for t in aug.augmentations.transforms}
+
+    def test_grayscale_skips_colour_only_augmentations(self):
+        # IMAGE_DEPTH==1 must drop the colour-only augs (ISO_NOISE,
+        # HUE_SATURATION) that need 3-channel images, while channel-agnostic
+        # augs like BRIGHTNESS survive. Guards against the
+        # "This transformation expects 3-channel images" crash.
+        augs = ['ISO_NOISE', 'HUE_SATURATION', 'BRIGHTNESS']
+        gray = ImageAugmentation(_cfg(AUGMENTATIONS=augs, IMAGE_DEPTH=1),
+                                 'AUGMENTATIONS', prob=1.0, always_apply=True)
+        names = self._transform_class_names(gray)
+        self.assertNotIn('ISONoise', names)
+        self.assertNotIn('HueSaturationValue', names)
+        self.assertIn('RandomBrightnessContrast', names)
+
+    def test_rgb_keeps_colour_only_augmentations(self):
+        # IMAGE_DEPTH==3 (the default) must keep the colour-only augs.
+        augs = ['ISO_NOISE', 'HUE_SATURATION', 'BRIGHTNESS']
+        rgb = ImageAugmentation(_cfg(AUGMENTATIONS=augs, IMAGE_DEPTH=3),
+                                'AUGMENTATIONS', prob=1.0, always_apply=True)
+        names = self._transform_class_names(rgb)
+        self.assertIn('ISONoise', names)
+        self.assertIn('HueSaturationValue', names)
+        self.assertIn('RandomBrightnessContrast', names)
+        # The constants the skip logic relies on are what we think they are.
+        self.assertEqual(CHANNEL_3_ONLY_AUGMENTATIONS,
+                         {'ISO_NOISE', 'HUE_SATURATION'})
 
 
 class _R:

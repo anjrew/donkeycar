@@ -162,6 +162,8 @@ class TestMirrorDoubling(unittest.TestCase):
         seq.is_train = True
         seq._mirror_enabled = enabled
         seq._mirror_decisions = {}
+        seq._invert_enabled = False
+        seq._invert_decisions = {}
         return seq
 
     def test_build_records_doubles_and_tags(self):

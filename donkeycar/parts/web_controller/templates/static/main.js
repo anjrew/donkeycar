@@ -54,6 +54,7 @@ var driveHandler = new function() {
         scan_y: 0, scan_height: 0,
         steering_left_pwm: 0, steering_right_pwm: 0,
         ai_throttle_mult: 1.0,
+        ai_steering_mult: 1.0,
         line_follower_mode: 'center_line',
         half_track_width_px: 80,
     };
@@ -449,7 +450,7 @@ var driveHandler = new function() {
 
         // Scan + throttle + half-track-width (scalar sliders)
         ['scan_y', 'scan_height', 'throttle_min', 'throttle_max',
-         'ai_throttle_mult', 'half_track_width_px'].forEach(function(key) {
+         'ai_throttle_mult', 'ai_steering_mult', 'half_track_width_px'].forEach(function(key) {
             var v = tuningState[key];
             if (v === null || v === undefined) {
                 console.warn('[tuning] paint skipped key=', key, 'value=', v);
@@ -550,6 +551,7 @@ var driveHandler = new function() {
             {id: 'tune_throttle_min',        key: 'throttle_min',        parse: parseFloat},
             {id: 'tune_throttle_max',        key: 'throttle_max',        parse: parseFloat},
             {id: 'tune_ai_throttle_mult',    key: 'ai_throttle_mult',    parse: parseFloat},
+            {id: 'tune_ai_steering_mult',    key: 'ai_steering_mult',    parse: parseFloat},
             {id: 'tune_half_track_width_px', key: 'half_track_width_px', parse: function(s) { return parseInt(s, 10); }},
         ].forEach(function(s) {
             var $el = $('#' + s.id);

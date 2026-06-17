@@ -12,6 +12,7 @@ import os
 import json
 import logging
 import math
+import re
 import time
 import asyncio
 
@@ -200,6 +201,109 @@ def _render_myconfig_snippet(t):
         '',
     ]
     return '\n'.join(lines)
+
+
+# Reverse of the name map baked into _render_myconfig_snippet: myconfig.py
+# constant name -> tuning-state key. Used by _parse_myconfig_snippet to turn a
+# pasted snippet back into a patch for apply_tuning_patch.
+_MYCONFIG_TO_TUNING = {
+    'LINE_FOLLOWER_MODE': 'line_follower_mode',
+    'HALF_TRACK_WIDTH_PX': 'half_track_width_px',
+    'COLOR_THRESHOLD_LOW': 'hsv_center_low',
+    'COLOR_THRESHOLD_HIGH': 'hsv_center_high',
+    'EDGE_COLOR_THRESHOLD_LOW': 'hsv_edge_low',
+    'EDGE_COLOR_THRESHOLD_HIGH': 'hsv_edge_high',
+    'PID_P': 'pid_p',
+    'PID_I': 'pid_i',
+    'PID_D': 'pid_d',
+    'THROTTLE_MIN': 'throttle_min',
+    'THROTTLE_MAX': 'throttle_max',
+    'SCAN_Y': 'scan_y',
+    'SCAN_HEIGHT': 'scan_height',
+    'STEERING_LEFT_PWM': 'steering_left_pwm',
+    'STEERING_RIGHT_PWM': 'steering_right_pwm',
+    'THROTTLE_FORWARD_PWM': 'throttle_forward_pwm',
+    'THROTTLE_STOPPED_PWM': 'throttle_stopped_pwm',
+    'THROTTLE_REVERSE_PWM': 'throttle_reverse_pwm',
+    'PWM_STEERING_SCALE': 'steering_scale',
+    'PWM_THROTTLE_SCALE': 'throttle_scale',
+}
+
+_HSV_TUNING_KEYS = ('hsv_center_low', 'hsv_center_high',
+                    'hsv_edge_low', 'hsv_edge_high')
+
+# Matches both `NAME = value` assignment lines and `"NAME": value,` dict-entry
+# lines (with an optional trailing comma). A leading `#` is stripped before
+# matching so the commented PWM lines the snippet emits parse too.
+_SNIPPET_LINE_RE = re.compile(
+    r'^\s*"?(?P<name>[A-Z_][A-Z0-9_]*)"?\s*[:=]\s*(?P<value>.+?),?\s*$')
+
+
+def _coerce_snippet_value(raw, tuning_key):
+    """Turn the textual RHS of a snippet line into a JSON-friendly value.
+
+    Returns None if the value can't be parsed (the line is then skipped).
+    Range/clamp checks are intentionally left to _validate_tuning_patch.
+    """
+    raw = raw.strip()
+    if tuning_key in _HSV_TUNING_KEYS:
+        m = re.match(r'^[\(\[]\s*(.+?)\s*[\)\]]$', raw)
+        if not m:
+            return None
+        parts = [p.strip() for p in m.group(1).split(',') if p.strip() != '']
+        if len(parts) != 3:
+            return None
+        try:
+            return [int(p) for p in parts]
+        except ValueError:
+            return None
+    if tuning_key == 'line_follower_mode':
+        return raw.strip('\'"')
+    # Numeric scalar (int or float).
+    try:
+        return int(raw)
+    except ValueError:
+        try:
+            return float(raw)
+        except ValueError:
+            return None
+
+
+def _parse_myconfig_snippet(text):
+    """Parse a pasted myconfig snippet into a {tuning_key: value} patch.
+
+    Mirror of _render_myconfig_snippet. Tolerant of:
+      - `NAME = value` assignment lines,
+      - `"NAME": value,` dict-entry lines, commented (`#  "NAME": ...`) or not,
+      - inline trailing comments (`NAME = value  # note`),
+      - tuples/lists for the HSV keys.
+    Names we don't recognize are ignored, so the snippet block can sit inside a
+    larger myconfig.py. Returns a patch dict suitable for apply_tuning_patch.
+    """
+    patch = {}
+    for line in (text or '').splitlines():
+        line = line.strip()
+        if line.startswith('#'):
+            line = line.lstrip('#').strip()
+        # Drop an inline trailing comment (e.g. `COLOR_THRESHOLD_LOW = (0, 50,
+        # 50)  # HSV dark yellow`). The values we accept — numbers, int tuples,
+        # and the mode string — never legitimately contain a '#', so splitting
+        # on the first one is safe and lets snippets copied straight out of a
+        # commented myconfig.py parse cleanly.
+        if '#' in line:
+            line = line.split('#', 1)[0].strip()
+        if not line:
+            continue
+        m = _SNIPPET_LINE_RE.match(line)
+        if not m:
+            continue
+        tuning_key = _MYCONFIG_TO_TUNING.get(m.group('name'))
+        if tuning_key is None:
+            continue
+        value = _coerce_snippet_value(m.group('value'), tuning_key)
+        if value is not None:
+            patch[tuning_key] = value
+    return patch
 
 
 class RemoteWebServer():
@@ -589,10 +693,22 @@ class WebSocketTuningAPI(tornado.websocket.WebSocketHandler):
 
 
 class TuningSnippetHandler(RequestHandler):
-    """GET /tuning/snippet — Python snippet for pasting into myconfig.py."""
+    """GET /tuning/snippet — Python snippet for pasting into myconfig.py.
+    POST /tuning/snippet — parse a pasted snippet and apply it live."""
     def get(self):
         self.set_header("Content-Type", "text/plain; charset=utf-8")
         self.write(_render_myconfig_snippet(self.application.tuning))
+
+    def post(self):
+        text = self.request.body.decode("utf-8", "replace")
+        patch = _parse_myconfig_snippet(text)
+        rejections = self.application.apply_tuning_patch(patch)
+        rejected_keys = {r["key"] for r in rejections}
+        self.set_header("Content-Type", "application/json")
+        self.write(json.dumps({
+            "applied": [k for k in patch if k not in rejected_keys],
+            "rejections": rejections,
+        }))
 
 
 class TuningStateHandler(RequestHandler):

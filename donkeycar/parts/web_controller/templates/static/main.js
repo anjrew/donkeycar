@@ -268,6 +268,46 @@ var driveHandler = new function() {
             flashTuningStatus('copy failed (see console)', true);
           });
       });
+
+      // Reveal the paste box and focus it so the user can drop in a snippet.
+      $('#paste-snippet-btn').on('click', function() {
+        $('#paste-snippet-box').show();
+        $('#paste-snippet-text').focus();
+      });
+      $('#cancel-snippet-btn').on('click', function() {
+        $('#paste-snippet-text').val('');
+        $('#paste-snippet-box').hide();
+      });
+      // POST the pasted text to /tuning/snippet; the server parses it, applies
+      // it through the normal validate/commit path, and broadcasts a snapshot
+      // that repaints the UI for us (tuningSocket.onmessage -> paintTuningUI).
+      $('#apply-snippet-btn').on('click', function() {
+        var text = $('#paste-snippet-text').val();
+        if (!text || !text.trim()) {
+          flashTuningStatus('nothing to apply', true);
+          return;
+        }
+        fetch('/tuning/snippet', { method: 'POST', body: text })
+          .then(function(r) { return r.json(); })
+          .then(function(res) {
+            var applied = (res.applied || []).length;
+            var rejected = (res.rejections || []).length;
+            if (applied === 0 && rejected === 0) {
+              flashTuningStatus('no recognized keys in snippet', true);
+              return;
+            }
+            var msg = 'applied ' + applied;
+            if (rejected) msg += ', rejected ' + rejected + ' (' +
+              res.rejections.map(function(r){ return r.key; }).join(', ') + ')';
+            flashTuningStatus(msg, rejected > 0);
+            $('#paste-snippet-text').val('');
+            $('#paste-snippet-box').hide();
+          })
+          .catch(function(err) {
+            console.warn('[tuning] snippet apply failed', err);
+            flashTuningStatus('apply failed (see console)', true);
+          });
+      });
     };
 
     // Copy `text` to the clipboard via a hidden <textarea> and

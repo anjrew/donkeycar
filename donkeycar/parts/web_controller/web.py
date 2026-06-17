@@ -275,6 +275,7 @@ def _parse_myconfig_snippet(text):
     Mirror of _render_myconfig_snippet. Tolerant of:
       - `NAME = value` assignment lines,
       - `"NAME": value,` dict-entry lines, commented (`#  "NAME": ...`) or not,
+      - inline trailing comments (`NAME = value  # note`),
       - tuples/lists for the HSV keys.
     Names we don't recognize are ignored, so the snippet block can sit inside a
     larger myconfig.py. Returns a patch dict suitable for apply_tuning_patch.
@@ -284,6 +285,13 @@ def _parse_myconfig_snippet(text):
         line = line.strip()
         if line.startswith('#'):
             line = line.lstrip('#').strip()
+        # Drop an inline trailing comment (e.g. `COLOR_THRESHOLD_LOW = (0, 50,
+        # 50)  # HSV dark yellow`). The values we accept — numbers, int tuples,
+        # and the mode string — never legitimately contain a '#', so splitting
+        # on the first one is safe and lets snippets copied straight out of a
+        # commented myconfig.py parse cleanly.
+        if '#' in line:
+            line = line.split('#', 1)[0].strip()
         if not line:
             continue
         m = _SNIPPET_LINE_RE.match(line)

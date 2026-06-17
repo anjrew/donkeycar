@@ -5,6 +5,7 @@ Covers the pure parser (`_parse_myconfig_snippet`) and the
 normal validate/commit/broadcast pipeline.
 """
 import json
+import unittest
 
 import tornado.web
 from tornado import testing
@@ -19,7 +20,7 @@ from donkeycar.parts.web_controller.web import (
 )
 
 
-class ParseSnippetTest(testing.AsyncTestCase):
+class ParseSnippetTest(unittest.TestCase):
     """Pure-function tests for _parse_myconfig_snippet (no server)."""
 
     def test_assignment_lines(self):

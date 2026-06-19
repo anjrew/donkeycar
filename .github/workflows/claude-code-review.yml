@@ -1,0 +1,116 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  secrets-gate:
+    runs-on: ubuntu-latest
+    permissions: {}
+    outputs:
+      ok: ${{ steps.check.outputs.ok }}
+    steps:
+      - name: Check for CLAUDE_CODE_OAUTH_TOKEN
+        id: check
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          if [[ -n "${CLAUDE_CODE_OAUTH_TOKEN}" ]]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  claude-review:
+    needs: secrets-gate
+    if: ${{ needs.secrets-gate.outputs.ok == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Run Claude Code Review
+        id: claude-review
+        uses: anthropics/claude-code-action@476e359e6203e73dad705c8b322e333fabbd7416  # v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            You are an ADVERSARIAL reviewer of this donkeycar web controller
+            PR. Find REAL problems — extend zero benefit of the doubt to the
+            changed code, but do NOT invent issues to look thorough. If the
+            diff is clean after a careful pass, say so. The author has another
+            agent that will push back on fabricated feedback; the goal is
+            CONSENSUS on real defects.
+
+            Ground rules:
+            - Only the CHANGED lines (and code they touch) are in scope.
+            - Cite file:line for every finding. Quote the offending snippet
+              when it clarifies the point.
+            - No praise, no "LGTM", no summary of what the PR does.
+            - Every finding must be actionable: state the concrete change
+              you want, not a vague worry.
+            - If you are not 100% sure something is wrong but it smells off,
+              label it "SUSPECT" explicitly.
+
+            Hunt for (non-exhaustive):
+            - Bugs, off-by-ones, null/undefined/NaN edge cases
+            - JavaScript event binding bugs: duplicate listeners, missing
+              cleanup, incorrect event types (input vs change vs blur)
+            - jQuery selector mistakes: selecting wrong elements, duplicate
+              IDs, selectors that match more or fewer elements than intended
+            - CSS specificity conflicts or rules that accidentally affect
+              elements outside the tuning panel
+            - localStorage key collisions, missing default, corrupted state
+            - WebSocket patch shape errors: wrong key name, wrong value type,
+              arrays sent as scalars or vice versa
+            - paintTuningUI repaints overwriting user's live edits (activeElement guard missing)
+            - Slider ↔ number input desync: a change to one not mirrored to
+              the other, so the value visible differs from the value sent
+            - min/max/step mismatch between range and number siblings for the
+              same parameter
+            - Missing `isNaN` guards on parsed values before sending a patch
+            - Toggle button state not matching actual mode after page reload
+            - Any DOM changes that break existing bindTuningSliders or
+              paintTuningUI paths for parameters NOT covered by this PR
+            - Security: XSS via untrusted values inserted into innerHTML,
+              event handlers that eval user content
+            - Dead code, unused variables, copy-paste errors
+
+            Output format (post via `gh pr comment`):
+
+            ```
+            <!-- bot-review-marker: claude blocking=N nonblocking=N suspect=N sha=<head-sha-short> -->
+            ## Adversarial review — <commit sha short>
+
+            ### Blocking
+            - <file:line> — <problem> — <required change>
+
+            ### Non-blocking nits
+            - <file:line> — <problem> — <suggested change>
+
+            ### SUSPECT (not confirmed, worth a second look)
+            - <file:line> — <what smells> — <how to verify>
+            ```
+
+            If a section is empty, write "_(none)_". If the diff is genuinely
+            defect-free, say so explicitly in one line.
+
+            The HTML comment marker on the FIRST line is mandatory —
+            `blocking=N` where N is the count of Blocking bullets.
+
+            Use `gh pr comment` with your Bash tool to post the review.
+
+          claude_args: '--allowed-tools "Read,Grep,Glob,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"'

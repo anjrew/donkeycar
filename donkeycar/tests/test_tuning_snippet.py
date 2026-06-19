@@ -132,7 +132,7 @@ class TuningSnippetHandlerTest(testing.AsyncHTTPTestCase):
         body = "PID_P = 999\nSCAN_Y = 15\n"
         resp = self.fetch("/tuning/snippet", method="POST", body=body)
         payload = json.loads(resp.body)
-        assert payload["applied"] == ["scan_y"]
+        assert set(payload["applied"]) == {"scan_y"}
         rejected = {r["key"] for r in payload["rejections"]}
         assert rejected == {"pid_p"}
         assert self.app.tuning["scan_y"] == 15

@@ -7,7 +7,6 @@ remotes.py
 The client and web server needed to control a car remotely.
 """
 
-
 import os
 import json
 import logging
@@ -18,8 +17,7 @@ import asyncio
 
 import requests
 from tornado.ioloop import IOLoop
-from tornado.web import Application, RedirectHandler, StaticFileHandler, \
-    RequestHandler
+from tornado.web import Application, RedirectHandler, StaticFileHandler, RequestHandler
 from tornado.httpserver import HTTPServer
 import tornado.gen
 import tornado.websocket
@@ -30,24 +28,36 @@ from ... import utils
 logger = logging.getLogger(__name__)
 
 
-_LINE_FOLLOWER_MODES = ('center_line', 'center_line_with_angle',
-                        'two_edges', 'two_contours')
+_LINE_FOLLOWER_MODES = (
+    'center_line',
+    'center_line_with_angle',
+    'two_edges',
+    'two_contours',
+)
 
 
 def _default_tuning():
     return {
-        'hsv_center_low':  [0, 0, 0],
+        'hsv_center_low': [0, 0, 0],
         'hsv_center_high': [179, 255, 255],
-        'hsv_edge_low':    [0, 0, 0],
-        'hsv_edge_high':   [179, 255, 255],
-        'pid_p': 0.0, 'pid_i': 0.0, 'pid_d': 0.0,
-        'throttle_min': 0.0, 'throttle_max': 1.0,
-        'scan_y': 0, 'scan_height': 0,
-        'steering_left_pwm': 0, 'steering_right_pwm': 0,
-        'throttle_forward_pwm': 0, 'throttle_stopped_pwm': 0,
+        'hsv_edge_low': [0, 0, 0],
+        'hsv_edge_high': [179, 255, 255],
+        'pid_p': 0.0,
+        'pid_i': 0.0,
+        'pid_d': 0.0,
+        'throttle_min': 0.0,
+        'throttle_max': 1.0,
+        'scan_y': 0,
+        'scan_height': 0,
+        'steering_left_pwm': 0,
+        'steering_right_pwm': 0,
+        'throttle_forward_pwm': 0,
+        'throttle_stopped_pwm': 0,
         'throttle_reverse_pwm': 0,
-        'steering_scale': 1.0, 'throttle_scale': 1.0,
-        'ai_throttle_mult': 1.0, 'ai_steering_mult': 1.0,
+        'steering_scale': 1.0,
+        'throttle_scale': 1.0,
+        'ai_throttle_mult': 1.0,
+        'ai_steering_mult': 1.0,
         'line_follower_mode': 'center_line',
         'half_track_width_px': 80,
     }
@@ -77,10 +87,10 @@ def _validate_tuning_patch(patch, current):
     clean = {}
     rejections = []
     if not isinstance(patch, dict):
-        return clean, [{'key': '_patch',
-                        'reason': 'expected an object of {key: value} pairs'}]
-    hsv_keys = ('hsv_center_low', 'hsv_center_high',
-                'hsv_edge_low',   'hsv_edge_high')
+        return clean, [
+            {'key': '_patch', 'reason': 'expected an object of {key: value} pairs'}
+        ]
+    hsv_keys = ('hsv_center_low', 'hsv_center_high', 'hsv_edge_low', 'hsv_edge_high')
     pid_keys = ('pid_p', 'pid_i', 'pid_d')
 
     def reject(k, reason):
@@ -93,9 +103,7 @@ def _validate_tuning_patch(patch, current):
                     reject(k, 'expected length-3 array')
                     continue
                 h, s, val = int(v[0]), int(v[1]), int(v[2])
-                clean[k] = [_clamp(h, 0, 179),
-                            _clamp(s, 0, 255),
-                            _clamp(val, 0, 255)]
+                clean[k] = [_clamp(h, 0, 179), _clamp(s, 0, 255), _clamp(val, 0, 255)]
             elif k in pid_keys:
                 fv = float(v)
                 if not math.isfinite(fv) or abs(fv) > 10:
@@ -114,9 +122,13 @@ def _validate_tuning_patch(patch, current):
                     reject(k, 'negative')
                     continue
                 clean[k] = iv
-            elif k in ('steering_left_pwm', 'steering_right_pwm',
-                       'throttle_forward_pwm', 'throttle_stopped_pwm',
-                       'throttle_reverse_pwm'):
+            elif k in (
+                'steering_left_pwm',
+                'steering_right_pwm',
+                'throttle_forward_pwm',
+                'throttle_stopped_pwm',
+                'throttle_reverse_pwm',
+            ):
                 iv = int(v)
                 # PCA9685 12-bit values: 0..4095. Reject anything outside.
                 if not (0 <= iv <= 4095):
@@ -176,13 +188,51 @@ def _validate_tuning_patch(patch, current):
             reject('throttle_max', 'would fall below throttle_min')
             clean.pop('throttle_max')
 
+    # Cross-key invariant: throttle_forward_pwm > throttle_stopped_pwm
+    #   > throttle_reverse_pwm.
+    # A PCA9685 duty-cycle value is a raw count: higher = longer pulse.
+    # Forward motion requires a longer pulse than stopped; reverse requires a
+    # shorter pulse.  If these are inverted the ESC will receive a forward
+    # command on a reverse input (and vice-versa), which is a safety hazard.
+    _cur = current  # shorthand
+    new_fwd = clean.get('throttle_forward_pwm', _cur.get('throttle_forward_pwm', 0))
+    new_stop = clean.get('throttle_stopped_pwm', _cur.get('throttle_stopped_pwm', 0))
+    new_rev = clean.get('throttle_reverse_pwm', _cur.get('throttle_reverse_pwm', 0))
+    if not (new_fwd > new_stop > new_rev):
+        # Reject whichever keys from the patch contributed to the violation.
+        for key in (
+            'throttle_forward_pwm',
+            'throttle_stopped_pwm',
+            'throttle_reverse_pwm',
+        ):
+            if key in clean:
+                reject(
+                    key,
+                    'throttle PWM ordering violated: '
+                    'forward_pwm must be > stopped_pwm > reverse_pwm',
+                )
+                clean.pop(key)
+
+    # Cross-key invariant: steering_left_pwm != steering_right_pwm.
+    # Equal values mean the servo receives the same pulse for full-left and
+    # full-right, so steering becomes a no-op.
+    new_left = clean.get('steering_left_pwm', _cur.get('steering_left_pwm', 0))
+    new_right = clean.get('steering_right_pwm', _cur.get('steering_right_pwm', 0))
+    if new_left == new_right:
+        for key in ('steering_left_pwm', 'steering_right_pwm'):
+            if key in clean:
+                reject(key, 'steering_left_pwm must differ from steering_right_pwm')
+                clean.pop(key)
+
     return clean, rejections
 
 
 def _render_myconfig_snippet(t):
     """Render the current tuning dict as Python suitable for myconfig.py."""
+
     def tup(arr):
         return '(' + ', '.join(str(int(x)) for x in arr) + ')'
+
     lines = [
         '# === Auto-generated by web tuning panel ===',
         f'LINE_FOLLOWER_MODE = {t["line_follower_mode"]!r}',
@@ -238,14 +288,19 @@ _MYCONFIG_TO_TUNING = {
     'PWM_THROTTLE_SCALE': 'throttle_scale',
 }
 
-_HSV_TUNING_KEYS = ('hsv_center_low', 'hsv_center_high',
-                    'hsv_edge_low', 'hsv_edge_high')
+_HSV_TUNING_KEYS = (
+    'hsv_center_low',
+    'hsv_center_high',
+    'hsv_edge_low',
+    'hsv_edge_high',
+)
 
 # Matches both `NAME = value` assignment lines and `"NAME": value,` dict-entry
 # lines (with an optional trailing comma). A leading `#` is stripped before
 # matching so the commented PWM lines the snippet emits parse too.
 _SNIPPET_LINE_RE = re.compile(
-    r'^\s*"?(?P<name>[A-Z_][A-Z0-9_]*)"?\s*[:=]\s*(?P<value>.+?),?\s*$')
+    r'^\s*"?(?P<name>[A-Z_][A-Z0-9_]*)"?\s*[:=]\s*(?P<value>.+?),?\s*$'
+)
 
 
 def _coerce_snippet_value(raw, tuning_key):
@@ -315,18 +370,18 @@ def _parse_myconfig_snippet(text):
     return patch
 
 
-class RemoteWebServer():
+class RemoteWebServer:
     '''
     A controller that repeatedly polls a remote webserver and expects
     the response to be angle, throttle and drive mode.
     '''
 
-    def __init__(self, remote_url, connection_timeout=.25):
+    def __init__(self, remote_url, connection_timeout=0.25):
 
         self.control_url = remote_url
-        self.time = 0.
-        self.angle = 0.
-        self.throttle = 0.
+        self.time = 0.0
+        self.angle = 0.0
+        self.throttle = 0.0
         self.mode = 'user'
         self.mode_latch = None
         self.recording = False
@@ -359,19 +414,21 @@ class RemoteWebServer():
         response = None
         while response is None:
             try:
-                response = self.session.post(self.control_url,
-                                             files={'json': json.dumps(data)},
-                                             timeout=0.25)
+                response = self.session.post(
+                    self.control_url, files={'json': json.dumps(data)}, timeout=0.25
+                )
 
             except requests.exceptions.ReadTimeout as err:
                 print("\n Request took too long. Retrying")
                 # Lower throttle to prevent runaways.
-                return self.angle, self.throttle * .8, None
+                return self.angle, self.throttle * 0.8, None
 
             except requests.ConnectionError as err:
                 # try to reconnect every 3 seconds
-                print("\n Vehicle could not connect to server. Make sure you've " +
-                    "started your server and you're referencing the right port.")
+                print(
+                    "\n Vehicle could not connect to server. Make sure you've "
+                    + "started your server and you're referencing the right port."
+                )
                 time.sleep(3)
 
         data = json.loads(response.text)
@@ -419,7 +476,6 @@ class LocalWebController(tornado.web.Application):
         self.wsclients = []
         self.loop = None
 
-
         handlers = [
             (r"/", RedirectHandler, dict(url="/drive")),
             (r"/drive", DriveAPI),
@@ -431,18 +487,17 @@ class LocalWebController(tornado.web.Application):
             (r"/calibrate", CalibrateHandler),
             (r"/video", VideoAPI),
             (r"/wsTest", WsTest),
-
-            (r"/static/(.*)", StaticFileHandler,
-             {"path": self.static_file_path}),
+            (r"/static/(.*)", StaticFileHandler, {"path": self.static_file_path}),
         ]
 
         settings = {'debug': True}
         super().__init__(handlers, **settings)
-        logger.info(f"You can now go to {gethostname()}.local:{port} to "
-                    f"drive your car.")
+        logger.info(
+            f"You can now go to {gethostname()}.local:{port} to " f"drive your car."
+        )
 
     def update(self):
-        """ Start the tornado webserver. """
+        """Start the tornado webserver."""
         asyncio.set_event_loop(asyncio.new_event_loop())
         self.listen(self.port)
         self.loop = IOLoop.instance()
@@ -456,8 +511,7 @@ class LocalWebController(tornado.web.Application):
                     logger.debug(f"Updating web client: {data_str}")
                     wsclient.write_message(data_str)
                 except Exception as e:
-                    logger.warning("Error writing websocket message",
-                                   exc_info=e)
+                    logger.warning("Error writing websocket message", exc_info=e)
                     pass
 
     def apply_tuning_patch(self, patch, origin=None):
@@ -471,14 +525,18 @@ class LocalWebController(tornado.web.Application):
         """
         clean, rejections = _validate_tuning_patch(patch, self.tuning)
         in_keys = list(patch.keys()) if isinstance(patch, dict) else patch
-        logger.info("[tuning] apply_patch in=%s clean=%s rej=%s",
-                    in_keys, list(clean.keys()),
-                    [r['key'] for r in rejections])
+        logger.info(
+            "[tuning] apply_patch in=%s clean=%s rej=%s",
+            in_keys,
+            list(clean.keys()),
+            [r['key'] for r in rejections],
+        )
         if clean:
             self.tuning.update(clean)
             self.tuning_seq += 1
-            logger.info("[tuning] listeners=%d about to fire",
-                        len(self.tuning_listeners))
+            logger.info(
+                "[tuning] listeners=%d about to fire", len(self.tuning_listeners)
+            )
             for listener in self.tuning_listeners:
                 try:
                     listener(self.tuning)
@@ -488,9 +546,9 @@ class LocalWebController(tornado.web.Application):
         return rejections
 
     def broadcast_tuning(self, skip=None):
-        msg = json.dumps({'type': 'snapshot',
-                          'tuning': self.tuning,
-                          'seq': self.tuning_seq})
+        msg = json.dumps(
+            {'type': 'snapshot', 'tuning': self.tuning, 'seq': self.tuning_seq}
+        )
         for client in list(self.wsTuningClients):
             if client is skip:
                 continue
@@ -524,12 +582,12 @@ class LocalWebController(tornado.web.Application):
             self.recording = recording
             changes["recording"] = self.recording
         if self.recording_latch is not None:
-            self.recording = self.recording_latch;
-            self.recording_latch = None;
-            changes["recording"] = self.recording;
+            self.recording = self.recording_latch
+            self.recording_latch = None
+            changes["recording"] = self.recording
 
         # Send record count to websocket clients
-        if (self.num_records is not None and self.recording is True):
+        if self.num_records is not None and self.recording is True:
             if self.num_records % 10 == 0:
                 changes['num_records'] = self.num_records
 
@@ -589,7 +647,8 @@ class WsTest(RequestHandler):
 
 
 class CalibrateHandler(RequestHandler):
-    """ Serves the calibration web page"""
+    """Serves the calibration web page"""
+
     async def get(self):
         await self.render("templates/calibrate.html")
 
@@ -645,6 +704,7 @@ class WebSocketTuningAPI(tornado.websocket.WebSocketHandler):
     connect and after every accepted update. Clients send
     `{set: {key: value, ...}}` to mutate.
     """
+
     _RATE_LIMIT_S = 0.030  # drop bursts faster than ~33 Hz per client
 
     def check_origin(self, origin):
@@ -653,24 +713,32 @@ class WebSocketTuningAPI(tornado.websocket.WebSocketHandler):
     def open(self):
         self._last_msg_ts = 0.0
         self.application.wsTuningClients.append(self)
-        logger.info("[tuning] client connected (clients=%d)",
-                    len(self.application.wsTuningClients))
+        logger.info(
+            "[tuning] client connected (clients=%d)",
+            len(self.application.wsTuningClients),
+        )
         try:
-            self.write_message(json.dumps({
-                'type': 'snapshot',
-                'tuning': self.application.tuning,
-                'seq': self.application.tuning_seq,
-            }))
-            logger.info("[tuning] sent initial snapshot seq=%d",
-                        self.application.tuning_seq)
+            self.write_message(
+                json.dumps(
+                    {
+                        'type': 'snapshot',
+                        'tuning': self.application.tuning,
+                        'seq': self.application.tuning_seq,
+                    }
+                )
+            )
+            logger.info(
+                "[tuning] sent initial snapshot seq=%d", self.application.tuning_seq
+            )
         except Exception as e:
             logger.warning("Error writing tuning snapshot on open", exc_info=e)
 
     def on_message(self, message):
         now = time.time()
         if now - self._last_msg_ts < self._RATE_LIMIT_S:
-            logger.info("[tuning] rate-limited drop (gap=%.3fs)",
-                        now - self._last_msg_ts)
+            logger.info(
+                "[tuning] rate-limited drop (gap=%.3fs)", now - self._last_msg_ts
+            )
             return
         self._last_msg_ts = now
         logger.info("[tuning] recv: %s", message[:200])
@@ -684,26 +752,33 @@ class WebSocketTuningAPI(tornado.websocket.WebSocketHandler):
         if rejections:
             logger.info("[tuning] rejections: %s", rejections)
             try:
-                self.write_message(json.dumps({'type': 'rejected',
-                                               'rejections': rejections}))
+                self.write_message(
+                    json.dumps({'type': 'rejected', 'rejections': rejections})
+                )
             except Exception:
                 pass
         else:
-            logger.info("[tuning] committed patch keys=%s seq=%d",
-                        list(patch.keys()), self.application.tuning_seq)
+            logger.info(
+                "[tuning] committed patch keys=%s seq=%d",
+                list(patch.keys()),
+                self.application.tuning_seq,
+            )
 
     def on_close(self):
         try:
             self.application.wsTuningClients.remove(self)
         except ValueError:
             pass
-        logger.info("[tuning] client disconnected (clients=%d)",
-                    len(self.application.wsTuningClients))
+        logger.info(
+            "[tuning] client disconnected (clients=%d)",
+            len(self.application.wsTuningClients),
+        )
 
 
 class TuningSnippetHandler(RequestHandler):
     """GET /tuning/snippet — Python snippet for pasting into myconfig.py.
     POST /tuning/snippet — parse a pasted snippet and apply it live."""
+
     def get(self):
         self.set_header("Content-Type", "text/plain; charset=utf-8")
         self.write(_render_myconfig_snippet(self.application.tuning))
@@ -714,22 +789,31 @@ class TuningSnippetHandler(RequestHandler):
         rejections = self.application.apply_tuning_patch(patch)
         rejected_keys = {r["key"] for r in rejections}
         self.set_header("Content-Type", "application/json")
-        self.write(json.dumps({
-            "applied": [k for k in patch if k not in rejected_keys],
-            "rejections": rejections,
-        }))
+        self.write(
+            json.dumps(
+                {
+                    "applied": [k for k in patch if k not in rejected_keys],
+                    "rejections": rejections,
+                }
+            )
+        )
 
 
 class TuningStateHandler(RequestHandler):
     """GET /tuning/state — JSON dump of current server-side tuning state.
     Useful for `curl` debugging when the UI looks wrong."""
+
     def get(self):
         self.set_header("Content-Type", "application/json")
-        self.write(json.dumps({
-            'tuning': self.application.tuning,
-            'seq': self.application.tuning_seq,
-            'clients': len(self.application.wsTuningClients),
-        }))
+        self.write(
+            json.dumps(
+                {
+                    'tuning': self.application.tuning,
+                    'seq': self.application.tuning_seq,
+                    'clients': len(self.application.wsTuningClients),
+                }
+            )
+        )
 
 
 class WebSocketCalibrateAPI(tornado.websocket.WebSocketHandler):
@@ -752,28 +836,42 @@ class WebSocketCalibrateAPI(tornado.websocket.WebSocketHandler):
 
         if 'config' in data:
             config = data['config']
-            if self.application.drive_train_type == "PWM_STEERING_THROTTLE" \
-                or self.application.drive_train_type == "I2C_SERVO":
+            if (
+                self.application.drive_train_type == "PWM_STEERING_THROTTLE"
+                or self.application.drive_train_type == "I2C_SERVO"
+            ):
                 if 'STEERING_LEFT_PWM' in config:
-                    self.application.drive_train['steering'].left_pulse = config['STEERING_LEFT_PWM']
+                    self.application.drive_train['steering'].left_pulse = config[
+                        'STEERING_LEFT_PWM'
+                    ]
 
                 if 'STEERING_RIGHT_PWM' in config:
-                    self.application.drive_train['steering'].right_pulse = config['STEERING_RIGHT_PWM']
+                    self.application.drive_train['steering'].right_pulse = config[
+                        'STEERING_RIGHT_PWM'
+                    ]
 
                 if 'THROTTLE_FORWARD_PWM' in config:
-                    self.application.drive_train['throttle'].max_pulse = config['THROTTLE_FORWARD_PWM']
+                    self.application.drive_train['throttle'].max_pulse = config[
+                        'THROTTLE_FORWARD_PWM'
+                    ]
 
                 if 'THROTTLE_STOPPED_PWM' in config:
-                    self.application.drive_train['throttle'].zero_pulse = config['THROTTLE_STOPPED_PWM']
+                    self.application.drive_train['throttle'].zero_pulse = config[
+                        'THROTTLE_STOPPED_PWM'
+                    ]
 
                 if 'THROTTLE_REVERSE_PWM' in config:
-                    self.application.drive_train['throttle'].min_pulse = config['THROTTLE_REVERSE_PWM']
+                    self.application.drive_train['throttle'].min_pulse = config[
+                        'THROTTLE_REVERSE_PWM'
+                    ]
 
             elif self.application.drive_train_type == "MM1":
                 if ('MM1_STEERING_MID' in config) and (config['MM1_STEERING_MID'] != 0):
-                        self.application.drive_train.STEERING_MID = config['MM1_STEERING_MID']
+                    self.application.drive_train.STEERING_MID = config[
+                        'MM1_STEERING_MID'
+                    ]
                 if ('MM1_MAX_FORWARD' in config) and (config['MM1_MAX_FORWARD'] != 0):
-                        self.application.drive_train.MAX_FORWARD = config['MM1_MAX_FORWARD']
+                    self.application.drive_train.MAX_FORWARD = config['MM1_MAX_FORWARD']
                 if ('MM1_MAX_REVERSE' in config) and (config['MM1_MAX_REVERSE'] != 0):
                     self.application.drive_train.MAX_REVERSE = config['MM1_MAX_REVERSE']
 
@@ -788,23 +886,30 @@ class VideoAPI(RequestHandler):
 
     async def get(self):
         placeholder_image = utils.load_image_sized(
-                        os.path.join(self.application.static_file_path,
-                                     "img_placeholder.jpg"), 160, 120, 3)
+            os.path.join(self.application.static_file_path, "img_placeholder.jpg"),
+            160,
+            120,
+            3,
+        )
 
-        self.set_header("Content-type",
-                        "multipart/x-mixed-replace;boundary=--boundarydonotcross")
+        self.set_header(
+            "Content-type", "multipart/x-mixed-replace;boundary=--boundarydonotcross"
+        )
 
         served_image_timestamp = time.time()
         my_boundary = "--boundarydonotcross\n"
         while True:
 
-            interval = .005
+            interval = 0.005
             if served_image_timestamp + interval < time.time():
                 #
                 # if we have an image, then use it.
                 # otherwise show placeholder
                 #
-                if hasattr(self.application, 'img_arr') and self.application.img_arr is not None:
+                if (
+                    hasattr(self.application, 'img_arr')
+                    and self.application.img_arr is not None
+                ):
                     img = utils.arr_to_binary(self.application.img_arr)
                 else:
                     img = utils.arr_to_binary(placeholder_image)
@@ -823,7 +928,8 @@ class VideoAPI(RequestHandler):
 
 
 class BaseHandler(RequestHandler):
-    """ Serves the FPV web page"""
+    """Serves the FPV web page"""
+
     async def get(self):
         data = {}
         await self.render("templates/base_fpv.html", **data)
@@ -847,18 +953,19 @@ class WebFpv(Application):
         handlers = [
             (r"/", BaseHandler),
             (r"/video", VideoAPI),
-            (r"/static/(.*)", StaticFileHandler,
-             {"path": self.static_file_path})
+            (r"/static/(.*)", StaticFileHandler, {"path": self.static_file_path}),
         ]
 
         settings = {'debug': True}
         self.img_arr = None
         super().__init__(handlers, **settings)
-        logger.info(f"Started Web FPV server. You can now go to "
-                    f"{gethostname()}.local:{self.port} to view the car camera")
+        logger.info(
+            f"Started Web FPV server. You can now go to "
+            f"{gethostname()}.local:{self.port} to view the car camera"
+        )
 
     def update(self):
-        """ Start the tornado webserver. """
+        """Start the tornado webserver."""
         asyncio.set_event_loop(asyncio.new_event_loop())
         self.listen(self.port)
         IOLoop.instance().start()
@@ -871,5 +978,3 @@ class WebFpv(Application):
 
     def shutdown(self):
         pass
-
-

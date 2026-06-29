@@ -30,7 +30,7 @@ class ImageAugmentation:
         skip = set(LABEL_AWARE_AUGMENTATIONS)
         if getattr(cfg, 'IMAGE_DEPTH', 3) == 1:
             skip |= CHANNEL_3_ONLY_AUGMENTATIONS
-        requested = list(getattr(cfg, key, []))
+        requested = list(getattr(cfg, key, None) or [])
         aug_list = [a for a in requested if a not in skip]
         dropped = [a for a in requested
                    if a in CHANNEL_3_ONLY_AUGMENTATIONS and a in skip]

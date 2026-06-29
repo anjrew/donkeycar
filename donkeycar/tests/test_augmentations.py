@@ -204,5 +204,70 @@ class TestMirrorDoubling(unittest.TestCase):
         self.assertFalse(seq._should_mirror(_R()))
 
 
+class TestInvertDoubling(unittest.TestCase):
+    """INVERT is a photometric dataset-doubling pass (original + pixel-inverted
+    twin) that does NOT negate the steering label. Combined with HORIZONTAL_FLIP
+    it yields 4x data: original, flip, invert, flip+invert."""
+
+    def _make_seq(self, mirror=False, invert=False):
+        from donkeycar.pipeline.training import BatchSequence
+        cfg = _cfg(AUG_HFLIP_SEED=42)
+        seq = BatchSequence.__new__(BatchSequence)
+        seq.config = cfg
+        seq.is_train = True
+        seq._mirror_enabled = mirror
+        seq._mirror_decisions = {}
+        seq._invert_enabled = invert
+        seq._invert_decisions = {}
+        return seq
+
+    def test_invert_only_doubles_and_tags(self):
+        seq = self._make_seq(invert=True)
+        out = seq._build_records([_R(0), _R(1), _R(2)])
+        # N -> 2N, all distinct objects.
+        self.assertEqual(len(out), 6)
+        self.assertEqual(len({id(r) for r in out}), 6)
+        originals = [r for r in out if not seq._should_invert(r)]
+        twins = [r for r in out if seq._should_invert(r)]
+        self.assertEqual(len(originals), 3)
+        self.assertEqual(len(twins), 3)
+        self.assertEqual(sorted(r.i for r in originals), [0, 1, 2])
+        self.assertEqual(sorted(r.i for r in twins), [0, 1, 2])
+        # INVERT does not mirror, so no record should be flagged for mirror.
+        self.assertFalse(any(seq._should_mirror(r) for r in out))
+
+    def test_flip_and_invert_quadruples(self):
+        seq = self._make_seq(mirror=True, invert=True)
+        out = seq._build_records([_R(0), _R(1)])
+        # N -> 4N.
+        self.assertEqual(len(out), 8)
+        self.assertEqual(len({id(r) for r in out}), 8)
+        # All four (mirror, invert) combinations appear for each payload.
+        combos = sorted((r.i, seq._should_mirror(r), seq._should_invert(r))
+                        for r in out)
+        expected = sorted(
+            (i, m, v) for i in (0, 1)
+            for m in (False, True) for v in (False, True))
+        self.assertEqual(combos, expected)
+
+    def test_invert_decision_stable_per_instance(self):
+        seq = self._make_seq(invert=True)
+        out = seq._build_records([_R(), _R()])
+        for r in out:
+            first = seq._should_invert(r)
+            for _ in range(5):
+                self.assertEqual(seq._should_invert(r), first)
+
+    def test_disabled_passes_through_without_doubling(self):
+        seq = self._make_seq(mirror=False, invert=False)
+        records = [_R(), _R()]
+        out = seq._build_records(records)
+        self.assertIs(out, records)
+
+    def test_unregistered_record_is_never_inverted(self):
+        seq = self._make_seq(invert=True)
+        self.assertFalse(seq._should_invert(_R()))
+
+
 if __name__ == '__main__':
     unittest.main()

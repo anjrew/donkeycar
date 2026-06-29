@@ -582,7 +582,23 @@ class PCA9685:
             self.pwm = Adafruit_PCA9685.PCA9685(address=address)
             self.pwm.set_pwm_freq(frequency)
         except OSError as e:
-            bus_for_hint = busnum if busnum is not None else 1
+            # Resolve the bus number for the hint. If it was not supplied,
+            # ask the Adafruit driver for the platform default rather than
+            # assuming bus 1 (which is wrong on some platforms). Fall back to
+            # a non-numeric placeholder if it cannot be determined.
+            if busnum is not None:
+                bus_for_hint = busnum
+            else:
+                try:
+                    from Adafruit_GPIO import I2C
+                    bus_for_hint = I2C.get_default_bus()
+                except Exception:
+                    bus_for_hint = "default"
+            # Note: we intentionally do NOT pass errno/filename into this
+            # OSError. Doing so would make OSError.__str__ fall back to the
+            # "[Errno N] filename: strerror" form and discard the helpful
+            # message below. The original errno/filename remain available to
+            # callers via the chained __cause__ (raise ... from e).
             raise OSError(
                 f"Could not communicate with the PCA9685 PWM/servo controller "
                 f"at I2C address {hex(address)} on bus {bus_for_hint} "
@@ -596,8 +612,8 @@ class PCA9685:
                 "(3.3V or 5V depending on your board).\n"
                 f"  3. Address: confirm the configured I2C address "
                 f"({hex(address)}) matches the board. Run "
-                f"'i2cdetect -y {bus_for_hint}' to list the addresses actually "
-                "present on the bus.\n"
+                f"'i2cdetect -y {bus_for_hint}' to list the addresses "
+                "actually present on the bus.\n"
                 "  4. I2C enabled: enable I2C on the Pi via "
                 "'sudo raspi-config' > Interface Options > I2C, then reboot.\n"
             ) from e

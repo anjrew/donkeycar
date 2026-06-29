@@ -320,16 +320,24 @@ class KerasLinear(KerasPilot):
     The KerasLinear pilot uses one neuron to output a continuous value via
     the Keras Dense layer with linear activation. One each for steering and
     throttle. The output is not bounded.
+
+    Architecture knobs (all optional, defaults match the historical net):
+        dropout:       dropout rate after each Conv2D / Dense layer
+        conv_filters:  list of (filters, kernel, stride) per conv layer
+        dense_sizes:   list of Dense layer sizes between conv stack and outputs
     """
     def __init__(self,
                  interpreter: Interpreter = KerasInterpreter(),
                  input_shape: Tuple[int, ...] = (120, 160, 3),
-                 num_outputs: int = 2):
+                 num_outputs: int = 2,
+                 arch: Optional[Dict[str, Any]] = None):
         self.num_outputs = num_outputs
+        self.arch = arch or {}
         super().__init__(interpreter, input_shape)
 
     def create_model(self):
-        return default_n_linear(self.num_outputs, self.input_shape)
+        return default_n_linear(self.num_outputs, self.input_shape,
+                                arch=self.arch)
 
     def compile(self):
         self.interpreter.compile(optimizer=self.optimizer, loss='mse')
@@ -818,39 +826,61 @@ def conv2d(filters, kernel, strides, layer_num, activation='relu'):
                          name='conv2d_' + str(layer_num))
 
 
-def core_cnn_layers(img_in, drop, l4_stride=1):
+DEFAULT_CONV_FILTERS = [
+    (24, 5, 2),
+    (32, 5, 2),
+    (64, 5, 2),
+    (64, 3, 1),
+    (64, 3, 1),
+]
+DEFAULT_DENSE_SIZES = [100, 50]
+
+
+def core_cnn_layers(img_in, drop, l4_stride=1, conv_filters=None):
     """
     Returns the core CNN layers that are shared among the different models,
     like linear, imu, behavioural
 
     :param img_in:          input layer of network
     :param drop:            dropout rate
-    :param l4_stride:       4-th layer stride, default 1
+    :param l4_stride:       4-th layer stride, default 1 (only used when
+                            conv_filters is None and we use the historical
+                            stack).
+    :param conv_filters:    list of (filters, kernel, stride) tuples. If
+                            None, uses the historical 5-layer stack with
+                            l4_stride applied to layer 4.
     :return:                stack of CNN layers
     """
+    if conv_filters is None:
+        conv_filters = list(DEFAULT_CONV_FILTERS)
+        # Preserve historical l4_stride override on the 4th conv.
+        f4, k4, _ = conv_filters[3]
+        conv_filters[3] = (f4, k4, l4_stride)
     x = img_in
-    x = conv2d(24, 5, 2, 1)(x)
-    x = Dropout(drop)(x)
-    x = conv2d(32, 5, 2, 2)(x)
-    x = Dropout(drop)(x)
-    x = conv2d(64, 5, 2, 3)(x)
-    x = Dropout(drop)(x)
-    x = conv2d(64, 3, l4_stride, 4)(x)
-    x = Dropout(drop)(x)
-    x = conv2d(64, 3, 1, 5)(x)
-    x = Dropout(drop)(x)
+    for i, (filters, kernel, stride) in enumerate(conv_filters, start=1):
+        x = conv2d(filters, kernel, stride, i)(x)
+        x = Dropout(drop)(x)
     x = Flatten(name='flattened')(x)
     return x
 
 
-def default_n_linear(num_outputs, input_shape=(120, 160, 3)):
-    drop = 0.2
+def default_n_linear(num_outputs, input_shape=(120, 160, 3), arch=None):
+    """
+    arch (optional dict) keys:
+        dropout       : float, default 0.2
+        conv_filters  : list of (filters, kernel, stride), default historical
+        dense_sizes   : list of Dense layer widths, default [100, 50]
+    """
+    arch = arch or {}
+    drop = float(arch.get('dropout', 0.2))
+    conv_filters = arch.get('conv_filters')
+    dense_sizes = arch.get('dense_sizes', list(DEFAULT_DENSE_SIZES))
+
     img_in = Input(shape=input_shape, name='img_in')
-    x = core_cnn_layers(img_in, drop)
-    x = Dense(100, activation='relu', name='dense_1')(x)
-    x = Dropout(drop)(x)
-    x = Dense(50, activation='relu', name='dense_2')(x)
-    x = Dropout(drop)(x)
+    x = core_cnn_layers(img_in, drop, conv_filters=conv_filters)
+    for i, size in enumerate(dense_sizes, start=1):
+        x = Dense(size, activation='relu', name=f'dense_{i}')(x)
+        x = Dropout(drop)(x)
 
     outputs = []
     for i in range(num_outputs):

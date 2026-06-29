@@ -387,9 +387,10 @@ class TubReader(Tub):
 class TubHandler:
     def __init__(self, path):
         self.path = os.path.expanduser(path)
+        os.makedirs(self.path, exist_ok=True)
 
     def get_tub_list(self, path):
-        folders = next(os.walk(path))[1]
+        folders = next(os.walk(path), (None, [], []))[1]
         return folders
 
     def next_tub_number(self, path):

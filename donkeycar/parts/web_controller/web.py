@@ -11,6 +11,8 @@ The client and web server needed to control a car remotely.
 import os
 import json
 import logging
+import math
+import re
 import time
 import asyncio
 
@@ -26,6 +28,291 @@ from socket import gethostname
 from ... import utils
 
 logger = logging.getLogger(__name__)
+
+
+_LINE_FOLLOWER_MODES = ('center_line', 'center_line_with_angle',
+                        'two_edges', 'two_contours')
+
+
+def _default_tuning():
+    return {
+        'hsv_center_low':  [0, 0, 0],
+        'hsv_center_high': [179, 255, 255],
+        'hsv_edge_low':    [0, 0, 0],
+        'hsv_edge_high':   [179, 255, 255],
+        'pid_p': 0.0, 'pid_i': 0.0, 'pid_d': 0.0,
+        'throttle_min': 0.0, 'throttle_max': 1.0,
+        'scan_y': 0, 'scan_height': 0,
+        'steering_left_pwm': 0, 'steering_right_pwm': 0,
+        'throttle_forward_pwm': 0, 'throttle_stopped_pwm': 0,
+        'throttle_reverse_pwm': 0,
+        'steering_scale': 1.0, 'throttle_scale': 1.0,
+        'ai_throttle_mult': 1.0, 'ai_steering_mult': 1.0,
+        'line_follower_mode': 'center_line',
+        'half_track_width_px': 80,
+    }
+
+
+def _clamp(v, lo, hi):
+    return max(lo, min(hi, v))
+
+
+def _validate_tuning_patch(patch, current):
+    """
+    Sanitize a {key: value} patch against the current tuning dict.
+    Returns (clean_patch, rejections) where rejections is a list of
+    {key, reason} for keys that were dropped (rejected outright).
+    In-range coercion such as clamping a value to its valid bounds is
+    applied silently and is NOT recorded in rejections.
+
+    Validation rules:
+      - HSV arrays: length-3 ints. H clamped to 0..179, S/V to 0..255.
+      - pid_p/i/d: finite floats with |v| <= 10.
+      - throttle_min/max: finite floats clamped to -1..1; if both present,
+        min must be <= max (rejected if not).
+      - scan_y / scan_height: non-negative ints (upper bound not enforced
+        here; LineFollower clips at frame height).
+    Unknown keys are dropped.
+    """
+    clean = {}
+    rejections = []
+    if not isinstance(patch, dict):
+        return clean, [{'key': '_patch',
+                        'reason': 'expected an object of {key: value} pairs'}]
+    hsv_keys = ('hsv_center_low', 'hsv_center_high',
+                'hsv_edge_low',   'hsv_edge_high')
+    pid_keys = ('pid_p', 'pid_i', 'pid_d')
+
+    def reject(k, reason):
+        rejections.append({'key': k, 'reason': reason})
+
+    for k, v in (patch or {}).items():
+        try:
+            if k in hsv_keys:
+                if not (isinstance(v, (list, tuple)) and len(v) == 3):
+                    reject(k, 'expected length-3 array')
+                    continue
+                h, s, val = int(v[0]), int(v[1]), int(v[2])
+                clean[k] = [_clamp(h, 0, 179),
+                            _clamp(s, 0, 255),
+                            _clamp(val, 0, 255)]
+            elif k in pid_keys:
+                fv = float(v)
+                if not math.isfinite(fv) or abs(fv) > 10:
+                    reject(k, 'not finite or |v|>10')
+                    continue
+                clean[k] = fv
+            elif k in ('throttle_min', 'throttle_max'):
+                fv = float(v)
+                if not math.isfinite(fv):
+                    reject(k, 'not finite')
+                    continue
+                clean[k] = _clamp(fv, -1.0, 1.0)
+            elif k in ('scan_y', 'scan_height'):
+                iv = int(v)
+                if iv < 0:
+                    reject(k, 'negative')
+                    continue
+                clean[k] = iv
+            elif k in ('steering_left_pwm', 'steering_right_pwm',
+                       'throttle_forward_pwm', 'throttle_stopped_pwm',
+                       'throttle_reverse_pwm'):
+                iv = int(v)
+                # PCA9685 12-bit values: 0..4095. Reject anything outside.
+                if not (0 <= iv <= 4095):
+                    reject(k, 'out of range 0..4095')
+                    continue
+                clean[k] = iv
+            elif k in ('steering_scale', 'throttle_scale'):
+                fv = float(v)
+                # Frequency-compensation multiplier on the PulseController.
+                # Default 1.0; clamp to a sane band to guard fat-fingering.
+                if not math.isfinite(fv):
+                    reject(k, 'not finite')
+                    continue
+                clean[k] = _clamp(fv, 0.5, 2.0)
+            elif k == 'ai_throttle_mult':
+                fv = float(v)
+                # Scales the NN pilot's throttle in autopilot. Clamp to a
+                # sane band so a fat-fingered slider can't command runaway
+                # speed; 0 = stop, 5 = 5x the model's predicted throttle.
+                if not math.isfinite(fv):
+                    reject(k, 'not finite')
+                    continue
+                clean[k] = _clamp(fv, 0.0, 5.0)
+            elif k == 'ai_steering_mult':
+                fv = float(v)
+                # Scales the NN pilot's steering in autopilot. Clamp to a
+                # sane band so a fat-fingered slider can't invert or wildly
+                # amplify steering; 0 = straight, 2 = 2x the model's angle.
+                if not math.isfinite(fv):
+                    reject(k, 'not finite')
+                    continue
+                clean[k] = _clamp(fv, 0.0, 2.0)
+            elif k == 'line_follower_mode':
+                if v not in _LINE_FOLLOWER_MODES:
+                    reject(k, f'must be one of {_LINE_FOLLOWER_MODES}')
+                    continue
+                clean[k] = v
+            elif k == 'half_track_width_px':
+                iv = int(v)
+                if not (0 <= iv <= 1000):
+                    reject(k, 'out of range 0..1000')
+                    continue
+                clean[k] = iv
+            else:
+                reject(k, 'unknown key')
+        except (TypeError, ValueError) as exc:
+            reject(k, f'parse error: {exc}')
+
+    # Cross-key invariant: throttle_min <= throttle_max
+    new_min = clean.get('throttle_min', current.get('throttle_min', 0.0))
+    new_max = clean.get('throttle_max', current.get('throttle_max', 1.0))
+    if new_min > new_max:
+        if 'throttle_min' in clean:
+            reject('throttle_min', 'would exceed throttle_max')
+            clean.pop('throttle_min')
+        if 'throttle_max' in clean:
+            reject('throttle_max', 'would fall below throttle_min')
+            clean.pop('throttle_max')
+
+    return clean, rejections
+
+
+def _render_myconfig_snippet(t):
+    """Render the current tuning dict as Python suitable for myconfig.py."""
+    def tup(arr):
+        return '(' + ', '.join(str(int(x)) for x in arr) + ')'
+    lines = [
+        '# === Auto-generated by web tuning panel ===',
+        f'LINE_FOLLOWER_MODE = {t["line_follower_mode"]!r}',
+        f'HALF_TRACK_WIDTH_PX = {int(t["half_track_width_px"])}',
+        f'COLOR_THRESHOLD_LOW       = {tup(t["hsv_center_low"])}',
+        f'COLOR_THRESHOLD_HIGH      = {tup(t["hsv_center_high"])}',
+        f'EDGE_COLOR_THRESHOLD_LOW  = {tup(t["hsv_edge_low"])}',
+        f'EDGE_COLOR_THRESHOLD_HIGH = {tup(t["hsv_edge_high"])}',
+        f'PID_P = {t["pid_p"]!r}',
+        f'PID_I = {t["pid_i"]!r}',
+        f'PID_D = {t["pid_d"]!r}',
+        f'THROTTLE_MIN = {t["throttle_min"]!r}',
+        f'THROTTLE_MAX = {t["throttle_max"]!r}',
+        f'SCAN_Y = {int(t["scan_y"])}',
+        f'SCAN_HEIGHT = {int(t["scan_height"])}',
+        '',
+        '# Update these inside the PWM_STEERING_THROTTLE dict in myconfig.py:',
+        f'#   "STEERING_LEFT_PWM":  {int(t["steering_left_pwm"])},',
+        f'#   "STEERING_RIGHT_PWM": {int(t["steering_right_pwm"])},',
+        f'#   "THROTTLE_FORWARD_PWM": {int(t["throttle_forward_pwm"])},',
+        f'#   "THROTTLE_STOPPED_PWM": {int(t["throttle_stopped_pwm"])},',
+        f'#   "THROTTLE_REVERSE_PWM": {int(t["throttle_reverse_pwm"])},',
+        f'#   "PWM_STEERING_SCALE": {t["steering_scale"]!r},',
+        f'#   "PWM_THROTTLE_SCALE": {t["throttle_scale"]!r},',
+        '',
+    ]
+    return '\n'.join(lines)
+
+
+# Reverse of the name map baked into _render_myconfig_snippet: myconfig.py
+# constant name -> tuning-state key. Used by _parse_myconfig_snippet to turn a
+# pasted snippet back into a patch for apply_tuning_patch.
+_MYCONFIG_TO_TUNING = {
+    'LINE_FOLLOWER_MODE': 'line_follower_mode',
+    'HALF_TRACK_WIDTH_PX': 'half_track_width_px',
+    'COLOR_THRESHOLD_LOW': 'hsv_center_low',
+    'COLOR_THRESHOLD_HIGH': 'hsv_center_high',
+    'EDGE_COLOR_THRESHOLD_LOW': 'hsv_edge_low',
+    'EDGE_COLOR_THRESHOLD_HIGH': 'hsv_edge_high',
+    'PID_P': 'pid_p',
+    'PID_I': 'pid_i',
+    'PID_D': 'pid_d',
+    'THROTTLE_MIN': 'throttle_min',
+    'THROTTLE_MAX': 'throttle_max',
+    'SCAN_Y': 'scan_y',
+    'SCAN_HEIGHT': 'scan_height',
+    'STEERING_LEFT_PWM': 'steering_left_pwm',
+    'STEERING_RIGHT_PWM': 'steering_right_pwm',
+    'THROTTLE_FORWARD_PWM': 'throttle_forward_pwm',
+    'THROTTLE_STOPPED_PWM': 'throttle_stopped_pwm',
+    'THROTTLE_REVERSE_PWM': 'throttle_reverse_pwm',
+    'PWM_STEERING_SCALE': 'steering_scale',
+    'PWM_THROTTLE_SCALE': 'throttle_scale',
+}
+
+_HSV_TUNING_KEYS = ('hsv_center_low', 'hsv_center_high',
+                    'hsv_edge_low', 'hsv_edge_high')
+
+# Matches both `NAME = value` assignment lines and `"NAME": value,` dict-entry
+# lines (with an optional trailing comma). A leading `#` is stripped before
+# matching so the commented PWM lines the snippet emits parse too.
+_SNIPPET_LINE_RE = re.compile(
+    r'^\s*"?(?P<name>[A-Z_][A-Z0-9_]*)"?\s*[:=]\s*(?P<value>.+?),?\s*$')
+
+
+def _coerce_snippet_value(raw, tuning_key):
+    """Turn the textual RHS of a snippet line into a JSON-friendly value.
+
+    Returns None if the value can't be parsed (the line is then skipped).
+    Range/clamp checks are intentionally left to _validate_tuning_patch.
+    """
+    raw = raw.strip()
+    if tuning_key in _HSV_TUNING_KEYS:
+        m = re.match(r'^[\(\[]\s*(.+?)\s*[\)\]]$', raw)
+        if not m:
+            return None
+        parts = [p.strip() for p in m.group(1).split(',') if p.strip() != '']
+        if len(parts) != 3:
+            return None
+        try:
+            return [int(p) for p in parts]
+        except ValueError:
+            return None
+    if tuning_key == 'line_follower_mode':
+        return raw.strip('\'"')
+    # Numeric scalar (int or float).
+    try:
+        return int(raw)
+    except ValueError:
+        try:
+            return float(raw)
+        except ValueError:
+            return None
+
+
+def _parse_myconfig_snippet(text):
+    """Parse a pasted myconfig snippet into a {tuning_key: value} patch.
+
+    Mirror of _render_myconfig_snippet. Tolerant of:
+      - `NAME = value` assignment lines,
+      - `"NAME": value,` dict-entry lines, commented (`#  "NAME": ...`) or not,
+      - inline trailing comments (`NAME = value  # note`),
+      - tuples/lists for the HSV keys.
+    Names we don't recognize are ignored, so the snippet block can sit inside a
+    larger myconfig.py. Returns a patch dict suitable for apply_tuning_patch.
+    """
+    patch = {}
+    for line in (text or '').splitlines():
+        line = line.strip()
+        if line.startswith('#'):
+            line = line.lstrip('#').strip()
+        # Drop an inline trailing comment (e.g. `COLOR_THRESHOLD_LOW = (0, 50,
+        # 50)  # HSV dark yellow`). The values we accept — numbers, int tuples,
+        # and the mode string — never legitimately contain a '#', so splitting
+        # on the first one is safe and lets snippets copied straight out of a
+        # commented myconfig.py parse cleanly.
+        if '#' in line:
+            line = line.split('#', 1)[0].strip()
+        if not line:
+            continue
+        m = _SNIPPET_LINE_RE.match(line)
+        if not m:
+            continue
+        tuning_key = _MYCONFIG_TO_TUNING.get(m.group('name'))
+        if tuning_key is None:
+            continue
+        value = _coerce_snippet_value(m.group('value'), tuning_key)
+        if value is not None:
+            patch[tuning_key] = value
+    return patch
 
 
 class RemoteWebServer():
@@ -118,6 +405,14 @@ class LocalWebController(tornado.web.Application):
         self.recording_latch = None
         self.buttons = {}  # latched button values for processing
 
+        # Runtime-tunable parameters surfaced to the web UI (HSV, PID,
+        # throttle, scan region). Seed defaults; manage.py overwrites these
+        # from cfg at boot. Mutations come from /wsTuning.
+        self.tuning = _default_tuning()
+        self.tuning_seq = 0
+        self.tuning_listeners = []  # list[Callable[[dict], None]]
+        self.wsTuningClients = []
+
         self.port = port
 
         self.num_records = 0
@@ -130,6 +425,9 @@ class LocalWebController(tornado.web.Application):
             (r"/drive", DriveAPI),
             (r"/wsDrive", WebSocketDriveAPI),
             (r"/wsCalibrate", WebSocketCalibrateAPI),
+            (r"/wsTuning", WebSocketTuningAPI),
+            (r"/tuning/snippet", TuningSnippetHandler),
+            (r"/tuning/state", TuningStateHandler),
             (r"/calibrate", CalibrateHandler),
             (r"/video", VideoAPI),
             (r"/wsTest", WsTest),
@@ -161,6 +459,45 @@ class LocalWebController(tornado.web.Application):
                     logger.warning("Error writing websocket message",
                                    exc_info=e)
                     pass
+
+    def apply_tuning_patch(self, patch, origin=None):
+        """
+        Validate, commit, and broadcast a tuning patch. Invokes registered
+        tuning_listeners with the full snapshot. Returns the rejections list.
+
+        `origin`, when set, is the WebSocket handler that sent the patch;
+        the broadcast skips it so a slider drag doesn't echo back and
+        snap the live drag handle to the just-committed value.
+        """
+        clean, rejections = _validate_tuning_patch(patch, self.tuning)
+        in_keys = list(patch.keys()) if isinstance(patch, dict) else patch
+        logger.info("[tuning] apply_patch in=%s clean=%s rej=%s",
+                    in_keys, list(clean.keys()),
+                    [r['key'] for r in rejections])
+        if clean:
+            self.tuning.update(clean)
+            self.tuning_seq += 1
+            logger.info("[tuning] listeners=%d about to fire",
+                        len(self.tuning_listeners))
+            for listener in self.tuning_listeners:
+                try:
+                    listener(self.tuning)
+                except Exception as e:
+                    logger.warning("Tuning listener raised", exc_info=e)
+            self.broadcast_tuning(skip=origin)
+        return rejections
+
+    def broadcast_tuning(self, skip=None):
+        msg = json.dumps({'type': 'snapshot',
+                          'tuning': self.tuning,
+                          'seq': self.tuning_seq})
+        for client in list(self.wsTuningClients):
+            if client is skip:
+                continue
+            try:
+                client.write_message(msg)
+            except Exception as e:
+                logger.warning("Error writing tuning ws message", exc_info=e)
 
     def run_threaded(self, img_arr=None, num_records=0, mode=None, recording=None):
         """
@@ -299,6 +636,100 @@ class WebSocketDriveAPI(tornado.websocket.WebSocketHandler):
     def on_close(self):
         logger.info("Client disconnected")
         self.application.wsclients.remove(self)
+
+
+class WebSocketTuningAPI(tornado.websocket.WebSocketHandler):
+    """
+    WebSocket for runtime tuning of the line follower (HSV, PID, throttle,
+    scan region). Clients receive `{type: 'snapshot', tuning, seq}` on
+    connect and after every accepted update. Clients send
+    `{set: {key: value, ...}}` to mutate.
+    """
+    _RATE_LIMIT_S = 0.030  # drop bursts faster than ~33 Hz per client
+
+    def check_origin(self, origin):
+        return True
+
+    def open(self):
+        self._last_msg_ts = 0.0
+        self.application.wsTuningClients.append(self)
+        logger.info("[tuning] client connected (clients=%d)",
+                    len(self.application.wsTuningClients))
+        try:
+            self.write_message(json.dumps({
+                'type': 'snapshot',
+                'tuning': self.application.tuning,
+                'seq': self.application.tuning_seq,
+            }))
+            logger.info("[tuning] sent initial snapshot seq=%d",
+                        self.application.tuning_seq)
+        except Exception as e:
+            logger.warning("Error writing tuning snapshot on open", exc_info=e)
+
+    def on_message(self, message):
+        now = time.time()
+        if now - self._last_msg_ts < self._RATE_LIMIT_S:
+            logger.info("[tuning] rate-limited drop (gap=%.3fs)",
+                        now - self._last_msg_ts)
+            return
+        self._last_msg_ts = now
+        logger.info("[tuning] recv: %s", message[:200])
+        try:
+            data = json.loads(message)
+        except (TypeError, ValueError):
+            logger.warning("[tuning] malformed JSON: %s", message[:100])
+            return
+        patch = data.get('set') or {}
+        rejections = self.application.apply_tuning_patch(patch, origin=self)
+        if rejections:
+            logger.info("[tuning] rejections: %s", rejections)
+            try:
+                self.write_message(json.dumps({'type': 'rejected',
+                                               'rejections': rejections}))
+            except Exception:
+                pass
+        else:
+            logger.info("[tuning] committed patch keys=%s seq=%d",
+                        list(patch.keys()), self.application.tuning_seq)
+
+    def on_close(self):
+        try:
+            self.application.wsTuningClients.remove(self)
+        except ValueError:
+            pass
+        logger.info("[tuning] client disconnected (clients=%d)",
+                    len(self.application.wsTuningClients))
+
+
+class TuningSnippetHandler(RequestHandler):
+    """GET /tuning/snippet — Python snippet for pasting into myconfig.py.
+    POST /tuning/snippet — parse a pasted snippet and apply it live."""
+    def get(self):
+        self.set_header("Content-Type", "text/plain; charset=utf-8")
+        self.write(_render_myconfig_snippet(self.application.tuning))
+
+    def post(self):
+        text = self.request.body.decode("utf-8", "replace")
+        patch = _parse_myconfig_snippet(text)
+        rejections = self.application.apply_tuning_patch(patch)
+        rejected_keys = {r["key"] for r in rejections}
+        self.set_header("Content-Type", "application/json")
+        self.write(json.dumps({
+            "applied": [k for k in patch if k not in rejected_keys],
+            "rejections": rejections,
+        }))
+
+
+class TuningStateHandler(RequestHandler):
+    """GET /tuning/state — JSON dump of current server-side tuning state.
+    Useful for `curl` debugging when the UI looks wrong."""
+    def get(self):
+        self.set_header("Content-Type", "application/json")
+        self.write(json.dumps({
+            'tuning': self.application.tuning,
+            'seq': self.application.tuning_seq,
+            'clients': len(self.application.wsTuningClients),
+        }))
 
 
 class WebSocketCalibrateAPI(tornado.websocket.WebSocketHandler):

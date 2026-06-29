@@ -1,5 +1,7 @@
+import copy
 import math
 import os
+import random
 from time import time
 from typing import List, Dict, Union, Tuple
 import logging
@@ -35,14 +37,103 @@ class BatchSequence(object):
                  is_train: bool) -> None:
         self.model = model
         self.config = config
-        self.sequence = TubSequence(records)
         self.batch_size = self.config.BATCH_SIZE
         self.is_train = is_train
         self.augmentation = ImageAugmentation(config, 'AUGMENTATIONS')
         self.transformation = ImageTransformations(config, 'TRANSFORMATIONS')
         self.post_transformation = ImageTransformations(config,
                                                         'POST_TRANSFORMATIONS')
+        # Horizontal mirror is label-aware: it must flip the steering label
+        # too, so it's handled here (not inside the albumentations Compose,
+        # which only sees the image). We treat the mirror as synthetic data:
+        # every training record is emitted twice — once as-is, once mirrored —
+        # so the flip *adds* a sample rather than *replacing* the original. See
+        # _build_records. The per-record decision is keyed by id() so get_x and
+        # get_y always agree and stays stable across epochs.
+        aug_list = list(getattr(config, 'AUGMENTATIONS', []) or [])
+        # Label-aware mirror only makes sense for single-record models. For
+        # sequence-based models (KerasLSTM, Keras3D_CNN, KerasMemory) a
+        # TubRecord becomes a List[TubRecord] and steering is packed into
+        # composite output keys (e.g. 'model_outputs'/'outputs') that we
+        # can't safely negate, so we disable HORIZONTAL_FLIP there with a
+        # warning rather than mis-train the model.
+        wants_mirror = is_train and 'HORIZONTAL_FLIP' in aug_list
+        # INVERT doubles the dataset like HORIZONTAL_FLIP (every record emitted
+        # as original + pixel-inverted twin) but does NOT negate the steering
+        # label (inversion is a photometric change, not a geometric one).
+        # Combined with HORIZONTAL_FLIP this produces 4x the data:
+        #   original, flip, invert, flip+invert.
+        wants_invert = is_train and 'INVERT' in aug_list
+        is_sequence_model = getattr(model, 'seq_size', lambda: 0)() > 0
+        if wants_mirror and is_sequence_model:
+            logger.warning(
+                "HORIZONTAL_FLIP requested but model %s is sequence-based; "
+                "disabling label-aware mirror for this run.",
+                type(model).__name__)
+        if wants_invert and is_sequence_model:
+            logger.warning(
+                "INVERT requested but model %s is sequence-based; "
+                "disabling label-aware invert doubling for this run.",
+                type(model).__name__)
+        self._mirror_enabled = wants_mirror and not is_sequence_model
+        self._invert_enabled = wants_invert and not is_sequence_model
+        # id(record) -> bool. Using external dicts rather than setattr
+        # so the cache works for any record-like object (including frozen
+        # tuples, lists of records, or objects without __dict__).
+        self._mirror_decisions: Dict[int, bool] = {}
+        self._invert_decisions: Dict[int, bool] = {}
+        self.sequence = TubSequence(self._build_records(records))
         self.pipeline = self._create_pipeline()
+
+    def _build_records(self, records: List[TubRecord]) -> List[TubRecord]:
+        """ Doubles (or quadruples) the training set for label-aware passes.
+
+        HORIZONTAL_FLIP: each record emitted as original + mirrored twin.
+        INVERT: each record emitted as original + pixel-inverted twin.
+        Both enabled: 4x data (original, flip, invert, flip+invert).
+
+        Each twin is a distinct shallow copy with its own id() so it gets an
+        independent augmentation draw and a stable decision across epochs. The
+        final list is shuffled deterministically so variants don't cluster.
+
+        When both are disabled the records pass through unchanged. """
+        if not self._mirror_enabled and not self._invert_enabled:
+            return records
+
+        # Pass 1: horizontal-flip doubling.
+        if self._mirror_enabled:
+            flipped: List[TubRecord] = []
+            for record in records:
+                twin = copy.copy(record)
+                self._mirror_decisions[id(record)] = False
+                self._mirror_decisions[id(twin)] = True
+                flipped.append(record)
+                flipped.append(twin)
+            logger.info('HORIZONTAL_FLIP doubling: %d records -> %d '
+                        '(original + mirror)', len(records), len(flipped))
+            records = flipped
+
+        # Pass 2: invert doubling. For each record (which may already be a
+        # flip twin), emit a pixel-inverted copy and carry over its mirror
+        # decision so flip+invert records get both transformations applied.
+        if self._invert_enabled:
+            inverted: List[TubRecord] = []
+            for record in records:
+                twin = copy.copy(record)
+                self._invert_decisions[id(record)] = False
+                self._invert_decisions[id(twin)] = True
+                # Carry the mirror decision to the invert twin.
+                mirror_val = self._mirror_decisions.get(id(record), False)
+                self._mirror_decisions[id(twin)] = mirror_val
+                inverted.append(record)
+                inverted.append(twin)
+            logger.info('INVERT doubling: %d records -> %d '
+                        '(original + inverted)', len(records), len(inverted))
+            records = inverted
+
+        random.Random(getattr(self.config, 'AUG_HFLIP_SEED', 0xD0)) \
+            .shuffle(records)
+        return records
 
     def __len__(self) -> int:
         return math.ceil(len(self.pipeline) / self.batch_size)
@@ -61,13 +152,40 @@ class BatchSequence(object):
 
         return img_arr
 
+    def _should_mirror(self, record) -> bool:
+        """ Whether this record instance is a mirror twin. _build_records emits
+        each training record twice — the original (-> False) and a shallow copy
+        (-> True) — and records the decision here keyed by id(record), so get_x
+        and get_y always agree and the flip is stable across epochs (which
+        matters when CACHE_IMAGES is on). Using id() keeps this safe for records
+        that don't accept attribute assignment (e.g. tuples or list-of-record
+        sequences). Anything not registered (validation, sequence models) is
+        never mirrored. """
+        return self._mirror_decisions.get(id(record), False)
+
+    def _should_invert(self, record) -> bool:
+        """ Whether this record instance is a pixel-invert twin. """
+        return self._invert_decisions.get(id(record), False)
+
     def _create_pipeline(self) -> TfmIterator:
         """ This can be overridden if more complicated pipelines are
             required """
         # 1. Initialise TubRecord -> x, y transformations
         def get_x(record: TubRecord) -> Dict[str, Union[float, np.ndarray]]:
             """ Extracting x from record for training"""
+            mirror = self._should_mirror(record)
+            invert = self._should_invert(record)
             out_dict = self.model.x_transform(record, self.image_processor)
+            img = out_dict.get('img_in')
+            if isinstance(img, np.ndarray):
+                if mirror:
+                    img = np.ascontiguousarray(img[:, ::-1, ...])
+                if invert:
+                    # Pixel-invert: 255 - pixel (photographic negative).
+                    # Works for both uint8 and float32; normalize_image runs
+                    # after this so the array is still uint8 here.
+                    img = np.ascontiguousarray(255 - img)
+                out_dict['img_in'] = img
             # apply the normalisation here on the fly to go from uint8 -> float
             out_dict['img_in'] = normalize_image(out_dict['img_in'])
             return out_dict
@@ -75,6 +193,28 @@ class BatchSequence(object):
         def get_y(record: TubRecord) -> Dict[str, Union[float, np.ndarray]]:
             """ Extracting y from record for training """
             y = self.model.y_transform(record)
+            if self._should_mirror(record):
+                # Negate steering. The label key varies by model type:
+                #   KerasLinear / KerasInferred / KerasMemory -> 'n_outputs0'
+                #   KerasCategorical / KerasBehavioral       -> 'angle_out'
+                #   KerasIMU                                  -> 'out_0'
+                #   KerasLocalizer                            -> 'angle'
+                # Anything matching these steering keys gets negated;
+                # throttle keys and one-hot location are left alone.
+                steering_keys = {
+                    'n_outputs0', 'angle_out', 'out_0', 'angle',
+                    'steering', 'user/angle',
+                }
+                for key in list(y.keys()):
+                    if key in steering_keys:
+                        val = y[key]
+                        if isinstance(val, (int, float)):
+                            y[key] = -val
+                        elif isinstance(val, np.ndarray):
+                            # 1-D categorical bin: reverse the histogram.
+                            # Scalar / regression: negate the value.
+                            y[key] = val[::-1].copy() \
+                                if val.ndim == 1 else -val
             return y
 
         # 2. Build pipeline using the transformations

@@ -77,6 +77,7 @@
             <h4 class="panel-title" style="display:inline-block;">Tuning &#9662;</h4>
             <button type="button" id="copy-snippet-btn" class="btn btn-xs btn-default pull-right" onclick="event.stopPropagation();">Copy myconfig snippet</button>
             <button type="button" id="paste-snippet-btn" class="btn btn-xs btn-default pull-right" style="margin-right:6px;" onclick="event.stopPropagation();">Paste myconfig snippet</button>
+            <button type="button" id="toggle-input-mode-btn" class="btn btn-xs btn-default pull-right" style="margin-right:6px;" onclick="event.stopPropagation();">&#8597; Numbers</button>
             <span id="tuning-status" class="pull-right" style="margin-right:10px;color:#888;"></span>
           </div>
           <div id="tuning-body" class="panel-collapse collapse in">
@@ -128,8 +129,7 @@
                       {% for ch, lo, hi in [('h', 0, 179), ('s', 0, 255), ('v', 0, 255)] %}
                         <div class="form-group" style="margin-bottom:2px;">
                           <label for="tune_hsv_center_{{ ch }}_{{ bound }}" style="display:inline-block;width:50px;font-size:12px;">{{ ch.upper() }} {{ bound }}</label>
-                          <input type="range" id="tune_hsv_center_{{ ch }}_{{ bound }}" min="{{ lo }}" max="{{ hi }}" step="1" style="display:inline-block;vertical-align:middle;width:55%;">
-                          <output for="tune_hsv_center_{{ ch }}_{{ bound }}" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                          <span class="tune-slider-wrap"><input type="range" id="tune_hsv_center_{{ ch }}_{{ bound }}" min="{{ lo }}" max="{{ hi }}" step="1" style="display:inline-block;vertical-align:middle;width:55%;"><output for="tune_hsv_center_{{ ch }}_{{ bound }}" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output></span><input type="number" id="tune_hsv_center_{{ ch }}_{{ bound }}_num" min="{{ lo }}" max="{{ hi }}" step="1" class="tune-number-input form-control input-sm" style="width:90px;vertical-align:middle;">
                         </div>
                       {% end %}
                     {% end %}
@@ -148,8 +148,7 @@
                       {% for ch, lo, hi in [('h', 0, 179), ('s', 0, 255), ('v', 0, 255)] %}
                         <div class="form-group" style="margin-bottom:2px;">
                           <label for="tune_hsv_edge_{{ ch }}_{{ bound }}" style="display:inline-block;width:50px;font-size:12px;">{{ ch.upper() }} {{ bound }}</label>
-                          <input type="range" id="tune_hsv_edge_{{ ch }}_{{ bound }}" min="{{ lo }}" max="{{ hi }}" step="1" style="display:inline-block;vertical-align:middle;width:55%;">
-                          <output for="tune_hsv_edge_{{ ch }}_{{ bound }}" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                          <span class="tune-slider-wrap"><input type="range" id="tune_hsv_edge_{{ ch }}_{{ bound }}" min="{{ lo }}" max="{{ hi }}" step="1" style="display:inline-block;vertical-align:middle;width:55%;"><output for="tune_hsv_edge_{{ ch }}_{{ bound }}" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output></span><input type="number" id="tune_hsv_edge_{{ ch }}_{{ bound }}_num" min="{{ lo }}" max="{{ hi }}" step="1" class="tune-number-input form-control input-sm" style="width:90px;vertical-align:middle;">
                         </div>
                       {% end %}
                     {% end %}
@@ -166,8 +165,7 @@
                   <div class="tune-section-body">
                     <div class="form-group" style="margin-bottom:2px;">
                       <label for="tune_half_track_width_px" style="display:inline-block;width:90px;font-size:12px;">half width</label>
-                      <input type="range" id="tune_half_track_width_px" min="20" max="320" step="1" style="display:inline-block;vertical-align:middle;width:50%;">
-                      <output for="tune_half_track_width_px" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                      <span class="tune-slider-wrap"><input type="range" id="tune_half_track_width_px" min="20" max="320" step="1" style="display:inline-block;vertical-align:middle;width:50%;"><output for="tune_half_track_width_px" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output></span><input type="number" id="tune_half_track_width_px_num" min="20" max="320" step="1" class="tune-number-input form-control input-sm" style="width:90px;vertical-align:middle;">
                     </div>
                     <p class="text-muted" style="margin-top:4px;margin-bottom:0;"><small>Used when only one edge is visible: hold a target offset of this many pixels inward from it.</small></p>
                   </div>
@@ -183,13 +181,11 @@
                   <div class="tune-section-body">
                     <div class="form-group" style="margin-bottom:2px;">
                       <label for="tune_scan_y" style="display:inline-block;width:90px;font-size:12px;">scan_y</label>
-                      <input type="range" id="tune_scan_y" min="0" max="480" step="1" style="display:inline-block;vertical-align:middle;width:50%;">
-                      <output for="tune_scan_y" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                      <span class="tune-slider-wrap"><input type="range" id="tune_scan_y" min="0" max="480" step="1" style="display:inline-block;vertical-align:middle;width:50%;"><output for="tune_scan_y" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output></span><input type="number" id="tune_scan_y_num" min="0" max="480" step="1" class="tune-number-input form-control input-sm" style="width:90px;vertical-align:middle;">
                     </div>
                     <div class="form-group" style="margin-bottom:2px;">
                       <label for="tune_scan_height" style="display:inline-block;width:90px;font-size:12px;">scan_height</label>
-                      <input type="range" id="tune_scan_height" min="0" max="480" step="1" style="display:inline-block;vertical-align:middle;width:50%;">
-                      <output for="tune_scan_height" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                      <span class="tune-slider-wrap"><input type="range" id="tune_scan_height" min="0" max="480" step="1" style="display:inline-block;vertical-align:middle;width:50%;"><output for="tune_scan_height" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output></span><input type="number" id="tune_scan_height_num" min="0" max="480" step="1" class="tune-number-input form-control input-sm" style="width:90px;vertical-align:middle;">
                     </div>
                   </div>
                 </div>
@@ -204,13 +200,11 @@
                   <div class="tune-section-body">
                     <div class="form-group" style="margin-bottom:2px;">
                       <label for="tune_throttle_min" style="display:inline-block;width:90px;font-size:12px;">throttle_min</label>
-                      <input type="range" id="tune_throttle_min" min="-1" max="1" step="0.01" style="display:inline-block;vertical-align:middle;width:50%;">
-                      <output for="tune_throttle_min" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                      <span class="tune-slider-wrap"><input type="range" id="tune_throttle_min" min="-1" max="1" step="0.01" style="display:inline-block;vertical-align:middle;width:50%;"><output for="tune_throttle_min" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output></span><input type="number" id="tune_throttle_min_num" min="-1" max="1" step="0.01" class="tune-number-input form-control input-sm" style="width:90px;vertical-align:middle;">
                     </div>
                     <div class="form-group" style="margin-bottom:2px;">
                       <label for="tune_throttle_max" style="display:inline-block;width:90px;font-size:12px;">throttle_max</label>
-                      <input type="range" id="tune_throttle_max" min="-1" max="1" step="0.01" style="display:inline-block;vertical-align:middle;width:50%;">
-                      <output for="tune_throttle_max" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                      <span class="tune-slider-wrap"><input type="range" id="tune_throttle_max" min="-1" max="1" step="0.01" style="display:inline-block;vertical-align:middle;width:50%;"><output for="tune_throttle_max" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output></span><input type="number" id="tune_throttle_max_num" min="-1" max="1" step="0.01" class="tune-number-input form-control input-sm" style="width:90px;vertical-align:middle;">
                     </div>
                   </div>
                 </div>
@@ -312,8 +306,7 @@
                   <div class="tune-section-body">
                     <div class="form-group" style="margin-bottom:2px;">
                       <label for="tune_ai_throttle_mult" style="display:inline-block;width:110px;font-size:12px;">ai_throttle_mult</label>
-                      <input type="range" id="tune_ai_throttle_mult" min="0" max="5" step="0.1" style="display:inline-block;vertical-align:middle;width:45%;">
-                      <output for="tune_ai_throttle_mult" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                      <span class="tune-slider-wrap"><input type="range" id="tune_ai_throttle_mult" min="0" max="5" step="0.1" style="display:inline-block;vertical-align:middle;width:45%;"><output for="tune_ai_throttle_mult" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output></span><input type="number" id="tune_ai_throttle_mult_num" min="0" max="5" step="0.1" class="tune-number-input form-control input-sm" style="width:90px;vertical-align:middle;">
                     </div>
                     <p class="text-muted" style="margin-top:4px;margin-bottom:0;"><small>Scales the NN pilot's throttle in autopilot (default 1.0, clamped 0&ndash;5.0). No effect on CV line-follower modes.</small></p>
                   </div>
@@ -329,8 +322,7 @@
                   <div class="tune-section-body">
                     <div class="form-group" style="margin-bottom:2px;">
                       <label for="tune_ai_steering_mult" style="display:inline-block;width:110px;font-size:12px;">ai_steering_mult</label>
-                      <input type="range" id="tune_ai_steering_mult" min="0" max="2" step="0.05" style="display:inline-block;vertical-align:middle;width:45%;">
-                      <output for="tune_ai_steering_mult" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                      <span class="tune-slider-wrap"><input type="range" id="tune_ai_steering_mult" min="0" max="2" step="0.05" style="display:inline-block;vertical-align:middle;width:45%;"><output for="tune_ai_steering_mult" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output></span><input type="number" id="tune_ai_steering_mult_num" min="0" max="2" step="0.05" class="tune-number-input form-control input-sm" style="width:90px;vertical-align:middle;">
                     </div>
                     <p class="text-muted" style="margin-top:4px;margin-bottom:0;"><small>Scales the NN pilot's steering in autopilot (default 1.0, clamped 0&ndash;2.0). No effect on CV line-follower modes.</small></p>
                   </div>

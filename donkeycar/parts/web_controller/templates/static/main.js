@@ -235,6 +235,7 @@ var driveHandler = new function() {
 
       // ====== Tuning panel bindings ======
       bindTuningSliders();
+      bindInputModeToggle();
       bindTuningSectionCollapse();
       $('#copy-snippet-btn').on('click', function() {
         fetch('/tuning/snippet')
@@ -384,9 +385,12 @@ var driveHandler = new function() {
     // persistence. Restore goes through Bootstrap's collapse plugin (not raw
     // class manipulation) so aria-expanded on the trigger is set correctly
     // and the chevron CSS (which keys off aria-expanded) stays in sync.
-    function safeStorageGet(key) {
-        try { return localStorage.getItem(key); }
-        catch (e) { return null; }
+    function safeStorageGet(key, defaultValue) {
+        try {
+            var v = localStorage.getItem(key);
+            return v !== null ? v : (defaultValue !== undefined ? defaultValue : null);
+        }
+        catch (e) { return defaultValue !== undefined ? defaultValue : null; }
     }
     function safeStorageSet(key, value) {
         try { localStorage.setItem(key, value); }
@@ -443,6 +447,8 @@ var driveHandler = new function() {
                     }
                     $el.val(arr[idx]);
                     $('output[for="' + id + '"]').text(arr[idx]);
+                    var $numEl = $('#' + id + '_num');
+                    if ($numEl.length && !_shouldSkip(id + '_num')) $numEl.val(arr[idx]);
                     painted++;
                 });
             });
@@ -461,6 +467,8 @@ var driveHandler = new function() {
             if (_shouldSkip(id)) return;
             $('#' + id).val(v);
             $('output[for="' + id + '"]').text(v);
+            var $numEl = $('#' + id + '_num');
+            if ($numEl.length && !_shouldSkip(id + '_num')) $numEl.val(v);
             painted++;
         });
 
@@ -539,6 +547,21 @@ var driveHandler = new function() {
                         patch[key] = arr;
                         sendDebounced(patch);
                     });
+                    var $numEl = $('#' + id + '_num');
+                    if ($numEl.length) {
+                        $numEl.on('change', function() {
+                            var v = parseInt(this.value, 10);
+                            if (isNaN(v)) return;
+                            var arr = (tuningState[key] || [0, 0, 0]).slice();
+                            arr[idx] = v;
+                            tuningState[key] = arr;
+                            $('output[for="' + id + '"]').text(v);
+                            $('#' + id).val(v);
+                            var patch = {};
+                            patch[key] = arr;
+                            sendTuningPatch(patch);
+                        });
+                    }
                 });
             });
         });
@@ -571,6 +594,19 @@ var driveHandler = new function() {
                 patch[s.key] = v;
                 sendDebounced(patch);
             });
+            var $numEl = $('#' + s.id + '_num');
+            if ($numEl.length) {
+                $numEl.on('change', function() {
+                    var v = s.parse(this.value);
+                    if (isNaN(v)) return;
+                    tuningState[s.key] = v;
+                    $('output[for="' + s.id + '"]').text(v);
+                    $('#' + s.id).val(v);
+                    var patch = {};
+                    patch[s.key] = v;
+                    sendTuningPatch(patch);
+                });
+            }
         });
         console.log('[tuning] bound', scalarBound, 'scalar sliders');
 
@@ -630,6 +666,25 @@ var driveHandler = new function() {
         });
     }
 
+
+    function bindInputModeToggle() {
+        function applyMode(mode) {
+            if (mode === 'number') {
+                $('#tuning-body').addClass('tuning-mode-number');
+                $('#toggle-input-mode-btn').text('↕ Sliders');
+            } else {
+                $('#tuning-body').removeClass('tuning-mode-number');
+                $('#toggle-input-mode-btn').text('↕ Numbers');
+            }
+            safeStorageSet('tuneInputMode', mode);
+        }
+        var saved = safeStorageGet('tuneInputMode', 'slider');
+        applyMode(saved);
+        $('#toggle-input-mode-btn').on('click', function() {
+            var current = $('#tuning-body').hasClass('tuning-mode-number') ? 'number' : 'slider';
+            applyMode(current === 'number' ? 'slider' : 'number');
+        });
+    }
 
     function bindNipple(manager) {
       manager.on('start', function(evt, data) {

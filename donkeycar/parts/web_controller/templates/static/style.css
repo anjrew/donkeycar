@@ -186,3 +186,8 @@ body {
 .tune-section-body {
   padding: 6px 8px;
 }
+
+/* Tuning panel: slider vs number input toggle */
+.tune-number-input { display: none; }
+#tuning-body.tuning-mode-number .tune-slider-wrap { display: none !important; }
+#tuning-body.tuning-mode-number .tune-number-input { display: inline-block !important; }

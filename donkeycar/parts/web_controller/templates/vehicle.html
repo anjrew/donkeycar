@@ -7,24 +7,25 @@
       <div class="col-md-6">
         <!-- pilot mode/recording -->
         <form>
-            <label>(M)ode</label>
+            <label>Pilot Mode (M)</label>
             <select id="mode_select" class="form-control"  style="display: inline">
-              <option value="user">(U)ser</option>
-              <option value="local">Full (A)uto</option>
-              <option value="local_angle">Auto (S)teer</option>
+              <option value="user">User (manual drive)</option>
+              <option value="local">Full Auto (steer + throttle)</option>
+              <option value="local_angle">Auto-Steer (manual throttle)</option>
             </select>
             <button type="button" id="record_button" class="btn btn-info" >
-              Start (R)ecording
+              Start Recording (R)
             </button>
         </form>
 
         <!-- programmable buttons -->
+        <small class="text-muted">PID quick-tune: D+ &nbsp; D- &nbsp; P+ &nbsp; P- &nbsp; I-</small>
         <form id="button_bar">
-          <button type="button" id="w1" class="btn btn-info">1</button>
-          <button type="button" id="w2" class="btn btn-info">2</button>
-          <button type="button" id="w3" class="btn btn-info">3</button>
-          <button type="button" id="w4" class="btn btn-info">4</button>
-          <button type="button" id="w5" class="btn btn-info">5</button>
+          <button type="button" id="w1" class="btn btn-info">D+</button>
+          <button type="button" id="w2" class="btn btn-info">D-</button>
+          <button type="button" id="w3" class="btn btn-info">P+</button>
+          <button type="button" id="w4" class="btn btn-info">P-</button>
+          <button type="button" id="w5" class="btn btn-info">I-</button>
         </form>
 
         <!-- video -->
@@ -63,6 +64,284 @@
       </div> <!-- end video column -->
 
       <div id="joystick-column"  class="col-md-6">
+
+        <!-- ============================================================
+             Tuning panel (HSV / scan region / throttle / PID).
+             Mutates donkeycar.web_controller.LocalWebController.tuning
+             live via /wsTuning. See main.js bindTuningSliders().
+             Positioned at top of the right column so it sits next to
+             the video for live adjustment while watching the stream.
+             ============================================================ -->
+        <div class="panel panel-default" id="tuning-panel" style="margin-bottom:10px;">
+          <div class="panel-heading" style="cursor:pointer;" data-toggle="collapse" data-target="#tuning-body">
+            <h4 class="panel-title" style="display:inline-block;">Tuning &#9662;</h4>
+            <button type="button" id="copy-snippet-btn" class="btn btn-xs btn-default pull-right" onclick="event.stopPropagation();">Copy myconfig snippet</button>
+            <button type="button" id="paste-snippet-btn" class="btn btn-xs btn-default pull-right" style="margin-right:6px;" onclick="event.stopPropagation();">Paste myconfig snippet</button>
+            <span id="tuning-status" class="pull-right" style="margin-right:10px;color:#888;"></span>
+          </div>
+          <div id="tuning-body" class="panel-collapse collapse in">
+            <div class="panel-body" style="padding:8px;">
+
+              <!-- Paste box for loading a saved myconfig snippet back into the
+                   live tuning panel. Toggled by #paste-snippet-btn; the pasted
+                   text is POSTed to /tuning/snippet, parsed server-side, and
+                   applied via the same validate/broadcast path as the sliders. -->
+              <div id="paste-snippet-box" style="display:none;margin-bottom:8px;">
+                <textarea id="paste-snippet-text" class="form-control" rows="6" style="font-family:monospace;font-size:12px;" placeholder="Paste a myconfig snippet (or a PWM_STEERING_THROTTLE block) here, then click Apply."></textarea>
+                <div style="margin-top:4px;">
+                  <button type="button" id="apply-snippet-btn" class="btn btn-xs btn-primary">Apply</button>
+                  <button type="button" id="cancel-snippet-btn" class="btn btn-xs btn-default">Cancel</button>
+                </div>
+              </div>
+
+
+              <!-- Mode selector — controls which subsections below are visible
+                   (see applyModeVisibility in main.js). Each subsection below
+                   is itself individually collapsible via Bootstrap collapse
+                   (data-toggle on the heading toggles the matching panel-collapse
+                   body). State is persisted per-section by bindTuningSectionCollapse(). -->
+              <div class="tune-section">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-mode">
+                  <span class="tune-section-title">Detection mode</span>
+                  <span class="tune-section-chevron">&#9662;</span>
+                </button>
+                <div id="tune-sec-mode" class="panel-collapse collapse in">
+                  <div class="tune-section-body">
+                    <div class="btn-group btn-group-sm" data-toggle="buttons" id="tune_mode_group">
+                      <label class="btn btn-default"><input type="radio" name="tune_mode" value="center_line"> Center line</label>
+                      <label class="btn btn-default"><input type="radio" name="tune_mode" value="center_line_with_angle"> Center + angle</label>
+                      <label class="btn btn-default"><input type="radio" name="tune_mode" value="two_edges"> Two edges</label>
+                      <label class="btn btn-default"><input type="radio" name="tune_mode" value="two_contours"> Two contours</label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tune-section" data-modes="center_line center_line_with_angle">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-center-hsv">
+                  <span class="tune-section-title">Center line HSV</span>
+                  <span class="tune-section-chevron">&#9662;</span>
+                </button>
+                <div id="tune-sec-center-hsv" class="panel-collapse collapse in">
+                  <div class="tune-section-body">
+                    {% for bound in ['low', 'high'] %}
+                      {% for ch, lo, hi in [('h', 0, 179), ('s', 0, 255), ('v', 0, 255)] %}
+                        <div class="form-group" style="margin-bottom:2px;">
+                          <label for="tune_hsv_center_{{ ch }}_{{ bound }}" style="display:inline-block;width:50px;font-size:12px;">{{ ch.upper() }} {{ bound }}</label>
+                          <input type="range" id="tune_hsv_center_{{ ch }}_{{ bound }}" min="{{ lo }}" max="{{ hi }}" step="1" style="display:inline-block;vertical-align:middle;width:55%;">
+                          <output for="tune_hsv_center_{{ ch }}_{{ bound }}" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                        </div>
+                      {% end %}
+                    {% end %}
+                  </div>
+                </div>
+              </div>
+
+              <div class="tune-section" data-modes="two_edges two_contours">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-edge-hsv">
+                  <span class="tune-section-title">Edge HSV</span>
+                  <span class="tune-section-chevron">&#9662;</span>
+                </button>
+                <div id="tune-sec-edge-hsv" class="panel-collapse collapse in">
+                  <div class="tune-section-body">
+                    {% for bound in ['low', 'high'] %}
+                      {% for ch, lo, hi in [('h', 0, 179), ('s', 0, 255), ('v', 0, 255)] %}
+                        <div class="form-group" style="margin-bottom:2px;">
+                          <label for="tune_hsv_edge_{{ ch }}_{{ bound }}" style="display:inline-block;width:50px;font-size:12px;">{{ ch.upper() }} {{ bound }}</label>
+                          <input type="range" id="tune_hsv_edge_{{ ch }}_{{ bound }}" min="{{ lo }}" max="{{ hi }}" step="1" style="display:inline-block;vertical-align:middle;width:55%;">
+                          <output for="tune_hsv_edge_{{ ch }}_{{ bound }}" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                        </div>
+                      {% end %}
+                    {% end %}
+                  </div>
+                </div>
+              </div>
+
+              <div class="tune-section" data-modes="two_edges two_contours">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-fallback">
+                  <span class="tune-section-title">Two-edge fallback</span>
+                  <span class="tune-section-chevron">&#9662;</span>
+                </button>
+                <div id="tune-sec-fallback" class="panel-collapse collapse in">
+                  <div class="tune-section-body">
+                    <div class="form-group" style="margin-bottom:2px;">
+                      <label for="tune_half_track_width_px" style="display:inline-block;width:90px;font-size:12px;">half width</label>
+                      <input type="range" id="tune_half_track_width_px" min="20" max="320" step="1" style="display:inline-block;vertical-align:middle;width:50%;">
+                      <output for="tune_half_track_width_px" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                    </div>
+                    <p class="text-muted" style="margin-top:4px;margin-bottom:0;"><small>Used when only one edge is visible: hold a target offset of this many pixels inward from it.</small></p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tune-section" data-modes="center_line center_line_with_angle two_edges two_contours">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-scan">
+                  <span class="tune-section-title">Scan region (pixels)</span>
+                  <span class="tune-section-chevron">&#9662;</span>
+                </button>
+                <div id="tune-sec-scan" class="panel-collapse collapse in">
+                  <div class="tune-section-body">
+                    <div class="form-group" style="margin-bottom:2px;">
+                      <label for="tune_scan_y" style="display:inline-block;width:90px;font-size:12px;">scan_y</label>
+                      <input type="range" id="tune_scan_y" min="0" max="480" step="1" style="display:inline-block;vertical-align:middle;width:50%;">
+                      <output for="tune_scan_y" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                    </div>
+                    <div class="form-group" style="margin-bottom:2px;">
+                      <label for="tune_scan_height" style="display:inline-block;width:90px;font-size:12px;">scan_height</label>
+                      <input type="range" id="tune_scan_height" min="0" max="480" step="1" style="display:inline-block;vertical-align:middle;width:50%;">
+                      <output for="tune_scan_height" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tune-section" data-modes="center_line center_line_with_angle two_edges two_contours">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-throttle">
+                  <span class="tune-section-title">Throttle limits</span>
+                  <span class="tune-section-chevron">&#9662;</span>
+                </button>
+                <div id="tune-sec-throttle" class="panel-collapse collapse in">
+                  <div class="tune-section-body">
+                    <div class="form-group" style="margin-bottom:2px;">
+                      <label for="tune_throttle_min" style="display:inline-block;width:90px;font-size:12px;">throttle_min</label>
+                      <input type="range" id="tune_throttle_min" min="-1" max="1" step="0.01" style="display:inline-block;vertical-align:middle;width:50%;">
+                      <output for="tune_throttle_min" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                    </div>
+                    <div class="form-group" style="margin-bottom:2px;">
+                      <label for="tune_throttle_max" style="display:inline-block;width:90px;font-size:12px;">throttle_max</label>
+                      <input type="range" id="tune_throttle_max" min="-1" max="1" step="0.01" style="display:inline-block;vertical-align:middle;width:50%;">
+                      <output for="tune_throttle_max" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tune-section" data-modes="center_line center_line_with_angle two_edges two_contours">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-pid">
+                  <span class="tune-section-title">PID</span>
+                  <span class="tune-section-chevron">&#9662;</span>
+                </button>
+                <div id="tune-sec-pid" class="panel-collapse collapse in">
+                  <div class="tune-section-body">
+                    <div class="form-group form-inline" style="margin-bottom:2px;">
+                      <label for="tune_pid_p" style="display:inline-block;width:50px;font-size:12px;">P</label>
+                      <input type="number" id="tune_pid_p" step="0.00001" class="form-control input-sm" style="width:140px;">
+                    </div>
+                    <div class="form-group form-inline" style="margin-bottom:2px;">
+                      <label for="tune_pid_i" style="display:inline-block;width:50px;font-size:12px;">I</label>
+                      <input type="number" id="tune_pid_i" step="0.00001" class="form-control input-sm" style="width:140px;">
+                    </div>
+                    <div class="form-group form-inline" style="margin-bottom:2px;">
+                      <label for="tune_pid_d" style="display:inline-block;width:50px;font-size:12px;">D</label>
+                      <input type="number" id="tune_pid_d" step="0.00001" class="form-control input-sm" style="width:140px;">
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tune-section" data-modes="center_line center_line_with_angle two_edges two_contours">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-steering">
+                  <span class="tune-section-title">Steering PWM endpoints</span>
+                  <span class="tune-section-chevron">&#9662;</span>
+                </button>
+                <div id="tune-sec-steering" class="panel-collapse collapse in">
+                  <div class="tune-section-body">
+                    <div class="form-group form-inline" style="margin-bottom:2px;">
+                      <label for="tune_steering_left_pwm" style="display:inline-block;width:50px;font-size:12px;">L</label>
+                      <input type="number" id="tune_steering_left_pwm" min="0" max="4095" step="1" class="form-control input-sm" style="width:120px;">
+                    </div>
+                    <div class="form-group form-inline" style="margin-bottom:2px;">
+                      <label for="tune_steering_right_pwm" style="display:inline-block;width:50px;font-size:12px;">R</label>
+                      <input type="number" id="tune_steering_right_pwm" min="0" max="4095" step="1" class="form-control input-sm" style="width:120px;">
+                    </div>
+                    <p class="text-muted" style="margin-top:4px;margin-bottom:0;"><small>Hue is OpenCV-style 0&ndash;179. Changes apply live; restart to revert to <code>myconfig.py</code>. Steering endpoints are PCA9685 12-bit (0&ndash;4095).</small></p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tune-section" data-modes="center_line center_line_with_angle two_edges two_contours">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-throttle-pwm">
+                  <span class="tune-section-title">Throttle PWM endpoints</span>
+                  <span class="tune-section-chevron">&#9662;</span>
+                </button>
+                <div id="tune-sec-throttle-pwm" class="panel-collapse collapse in">
+                  <div class="tune-section-body">
+                    <div class="form-group form-inline" style="margin-bottom:2px;">
+                      <label for="tune_throttle_forward_pwm" style="display:inline-block;width:70px;font-size:12px;">forward</label>
+                      <input type="number" id="tune_throttle_forward_pwm" min="0" max="4095" step="1" class="form-control input-sm" style="width:120px;">
+                    </div>
+                    <div class="form-group form-inline" style="margin-bottom:2px;">
+                      <label for="tune_throttle_stopped_pwm" style="display:inline-block;width:70px;font-size:12px;">stopped</label>
+                      <input type="number" id="tune_throttle_stopped_pwm" min="0" max="4095" step="1" class="form-control input-sm" style="width:120px;">
+                    </div>
+                    <div class="form-group form-inline" style="margin-bottom:2px;">
+                      <label for="tune_throttle_reverse_pwm" style="display:inline-block;width:70px;font-size:12px;">reverse</label>
+                      <input type="number" id="tune_throttle_reverse_pwm" min="0" max="4095" step="1" class="form-control input-sm" style="width:120px;">
+                    </div>
+                    <p class="text-muted" style="margin-top:4px;margin-bottom:0;"><small>Throttle endpoints are PCA9685 12-bit (0&ndash;4095).</small></p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tune-section" data-modes="center_line center_line_with_angle two_edges two_contours">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-pwm-scale">
+                  <span class="tune-section-title">PWM scale</span>
+                  <span class="tune-section-chevron">&#9662;</span>
+                </button>
+                <div id="tune-sec-pwm-scale" class="panel-collapse collapse in">
+                  <div class="tune-section-body">
+                    <div class="form-group form-inline" style="margin-bottom:2px;">
+                      <label for="tune_steering_scale" style="display:inline-block;width:70px;font-size:12px;">steering</label>
+                      <input type="number" id="tune_steering_scale" min="0.5" max="2" step="0.01" class="form-control input-sm" style="width:120px;">
+                    </div>
+                    <div class="form-group form-inline" style="margin-bottom:2px;">
+                      <label for="tune_throttle_scale" style="display:inline-block;width:70px;font-size:12px;">throttle</label>
+                      <input type="number" id="tune_throttle_scale" min="0.5" max="2" step="0.01" class="form-control input-sm" style="width:120px;">
+                    </div>
+                    <p class="text-muted" style="margin-top:4px;margin-bottom:0;"><small>Frequency-compensation multiplier (default 1.0, clamped 0.5&ndash;2.0).</small></p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tune-section" data-modes="center_line center_line_with_angle two_edges two_contours">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-ai-throttle">
+                  <span class="tune-section-title">AI throttle multiplier</span>
+                  <span class="tune-section-chevron">&#9662;</span>
+                </button>
+                <div id="tune-sec-ai-throttle" class="panel-collapse collapse in">
+                  <div class="tune-section-body">
+                    <div class="form-group" style="margin-bottom:2px;">
+                      <label for="tune_ai_throttle_mult" style="display:inline-block;width:110px;font-size:12px;">ai_throttle_mult</label>
+                      <input type="range" id="tune_ai_throttle_mult" min="0" max="5" step="0.1" style="display:inline-block;vertical-align:middle;width:45%;">
+                      <output for="tune_ai_throttle_mult" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                    </div>
+                    <p class="text-muted" style="margin-top:4px;margin-bottom:0;"><small>Scales the NN pilot's throttle in autopilot (default 1.0, clamped 0&ndash;5.0). No effect on CV line-follower modes.</small></p>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tune-section" data-modes="center_line center_line_with_angle two_edges two_contours">
+                <button type="button" class="tune-section-heading" data-toggle="collapse" data-target="#tune-sec-ai-steering">
+                  <span class="tune-section-title">AI steering multiplier</span>
+                  <span class="tune-section-chevron">&#9662;</span>
+                </button>
+                <div id="tune-sec-ai-steering" class="panel-collapse collapse in">
+                  <div class="tune-section-body">
+                    <div class="form-group" style="margin-bottom:2px;">
+                      <label for="tune_ai_steering_mult" style="display:inline-block;width:110px;font-size:12px;">ai_steering_mult</label>
+                      <input type="range" id="tune_ai_steering_mult" min="0" max="2" step="0.05" style="display:inline-block;vertical-align:middle;width:45%;">
+                      <output for="tune_ai_steering_mult" style="margin-left:6px;font-family:monospace;font-size:12px;">--</output>
+                    </div>
+                    <p class="text-muted" style="margin-top:4px;margin-bottom:0;"><small>Scales the NN pilot's steering in autopilot (default 1.0, clamped 0&ndash;2.0). No effect on CV line-follower modes.</small></p>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+        <!-- end tuning panel -->
+
         <div style="text-align:center;color:rgb(255, 27, 65);display:inline-block">Note: physical game controller overrides web control.</div>
         <!-- virtual joystick -->
         <div id="joystick_outer" class="thumbnail">

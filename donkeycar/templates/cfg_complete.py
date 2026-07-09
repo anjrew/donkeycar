@@ -525,8 +525,13 @@ NUM_LAST_LAYERS_TO_TRAIN = 7
 # List of augmentations to apply. e.g. ['MULTIPLY', 'BLUR']
 AUGMENTATIONS = []
 
-# Brightness range for augmentation [-0.2, 0.2].
+# Brightness range for the BRIGHTNESS augmentation, e.g. 0.2 -> [-0.2, 0.2].
+# Brightness and contrast are now decoupled: BRIGHTNESS only changes brightness
+# and uses AUG_CONTRAST_RANGE below for the contrast component.
 AUG_BRIGHTNESS_RANGE = 0.2
+
+# Contrast range for the BRIGHTNESS augmentation, e.g. 0.5 -> [-0.5, 0.5].
+AUG_CONTRAST_RANGE = 0.5
 
 # Blur range for augmentation (kernel size).
 AUG_BLUR_RANGE = (0, 3)

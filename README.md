@@ -1,7 +1,6 @@
 # Donkeycar: a python self driving library
 
 
-![Build Status](https://github.com/autorope/donkeycar/actions/workflows/python-package-conda.yml/badge.svg?branch=main)
 ![Lint Status](https://github.com/autorope/donkeycar/actions/workflows/superlinter.yml/badge.svg?branch=main)
 ![Release](https://img.shields.io/github/v/release/autorope/donkeycar)
 
@@ -72,7 +71,7 @@ while cam.run() is None:
     time.sleep(1)
 
 #add tub part to record images
-tub = TubWriter(path='./dat', inputs=['image'], types=['image_array'])
+tub = TubWriter(base_path='./dat', inputs=['image'], types=['image_array'])
 V.add(tub, inputs=['image'], outputs=['num_records'])
 
 #start the drive loop at 10 Hz

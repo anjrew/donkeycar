@@ -7,7 +7,7 @@ import numpy as np
 from donkeycar.config import Config
 from donkeycar.parts.tub_v2 import Tub
 from donkeycar.utils import load_image, load_pil_image, binary_to_img, \
-    img_to_arr, img_to_binary, arr_to_binary
+    img_to_arr
 from typing_extensions import TypedDict
 
 
@@ -122,20 +122,6 @@ class TubRecord(object):
             self._image = _image
         return _image
 
-    def _cache_processed_image(self, image, as_nparray):
-        if not as_nparray:
-            if self._cache_policy != CachePolicy.NOCACHE:
-                self._image = image
-            return
-        # if numpy and array caching, cache the processed image
-        if self._cache_policy == CachePolicy.ARRAY:
-            self._image = image
-        # if numpy and binary caching, cache binary image, but return
-        # numpy
-        elif self._cache_policy == CachePolicy.BINARY:
-            self._image = arr_to_binary(image)
-        # in the case of no caching, nothing needs to be done here
-
     def _extract_image(self, as_nparray, processor):
         image_path = self.underlying['cam/image_array']
         full_path = os.path.join(self.base_path, 'images', image_path)
@@ -144,9 +130,13 @@ class TubRecord(object):
         else:
             _image = self._load_pil_image_and_cache(full_path)
         if processor:
-            # _image is now either numpy or PIL, so processing applies always
+            # _image is now either numpy or PIL, so processing applies always.
+            # The cache set above holds the raw image; it must not be
+            # overwritten with the processed result, otherwise transforms
+            # and random augmentations compound on themselves on every
+            # subsequent call (e.g. once per training epoch) instead of
+            # being freshly applied to the original each time.
             _image = processor(_image)
-            self._cache_processed_image(_image, as_nparray)
         return _image
 
     def __repr__(self) -> str:

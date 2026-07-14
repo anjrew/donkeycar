@@ -1,12 +1,15 @@
+import os
+import tempfile
 import time
 import unittest
 from typing import List
 
 import numpy as np
+from PIL import Image
 
 from donkeycar.config import Config
 from donkeycar.pipeline.sequence import TubSequence
-from donkeycar.pipeline.types import TubRecord
+from donkeycar.pipeline.types import CachePolicy, TubRecord
 
 
 def random_records(size: int = 100) -> List[TubRecord]:
@@ -162,6 +165,64 @@ class TestPipeline(unittest.TestCase):
             tx, ty = t
             self.assertAlmostEqual(2 * ex, tx)
             self.assertAlmostEqual(3 * ey, ty)
+
+
+def make_image_record(base_path: str, cache_policy: str) -> TubRecord:
+    """ Writes a small real image to base_path/images and returns a
+    TubRecord pointing at it, configured with the given cache policy. """
+    images_dir = os.path.join(base_path, 'images')
+    os.makedirs(images_dir, exist_ok=True)
+    img_name = 'test.jpg'
+    arr = np.full((20, 20, 3), 100, dtype=np.uint8)
+    Image.fromarray(arr).save(os.path.join(images_dir, img_name))
+
+    cfg = Config()
+    cfg.IMAGE_W = 20
+    cfg.IMAGE_H = 20
+    cfg.IMAGE_DEPTH = 3
+    cfg.CACHE_POLICY = cache_policy
+    underlying = {'cam/image_array': img_name}
+    return TubRecord(config=cfg, base_path=base_path, underlying=underlying)
+
+
+class TestTubRecordImageCache(unittest.TestCase):
+    """ Regression test for TubRecord.image(): the cache must hold the raw
+    (pre-processor) image, so that a processor (transform/augmentation) is
+    applied fresh from the original pixels on every call. If the cache were
+    to hold the processed output instead, a non-idempotent processor would
+    compound on its own previous result on every subsequent call - e.g. once
+    per training epoch, since TubRecord instances are reused across epochs.
+    """
+
+    def _assert_processor_sees_raw_image_every_call(self, cache_policy):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            record = make_image_record(tmpdir, cache_policy=cache_policy)
+            calls = []
+
+            def processor(img):
+                calls.append(np.array(img).copy())
+                # Non-idempotent: if this ran on its own prior output, the
+                # second call's input (and result) would differ from the
+                # first's.
+                return np.array(img).astype(np.int16) + 10
+
+            first = record.image(processor=processor)
+            second = record.image(processor=processor)
+
+            self.assertTrue(
+                np.array_equal(calls[0], calls[1]),
+                "processor must see the same raw image on every call, not "
+                "the previous call's processed output")
+            self.assertTrue(np.array_equal(first, second))
+
+    def test_array_cache_policy(self):
+        self._assert_processor_sees_raw_image_every_call(CachePolicy.ARRAY.name)
+
+    def test_binary_cache_policy(self):
+        self._assert_processor_sees_raw_image_every_call(CachePolicy.BINARY.name)
+
+    def test_nocache_policy(self):
+        self._assert_processor_sees_raw_image_every_call(CachePolicy.NOCACHE.name)
 
 
 if __name__ == '__main__':

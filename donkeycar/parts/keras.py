@@ -33,8 +33,6 @@ from tensorflow.keras.backend import concatenate
 from tensorflow.keras.models import Model
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 
-ONE_BYTE_SCALE = 1.0 / 255.0
-
 # type of x
 XY = Union[float, np.ndarray, Tuple[Union[float, np.ndarray], ...]]
 

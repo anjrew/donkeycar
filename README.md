@@ -43,7 +43,6 @@ The donkey car is controlled by running a sequence of events
 ```python
 #Define a vehicle to take and record pictures 10 times per second.
 
-import time
 from donkeycar import Vehicle
 from donkeycar.parts.cv import CvCam
 from donkeycar.parts.tub_v2 import TubWriter
@@ -53,13 +52,10 @@ IMAGE_W = 160
 IMAGE_H = 120
 IMAGE_DEPTH = 3
 
-#Add a camera part
+#Add a camera part. CvCam blocks here internally until the first frame
+#arrives (or raises CameraError after warming_secs), so no manual warmup wait is needed.
 cam = CvCam(image_w=IMAGE_W, image_h=IMAGE_H, image_d=IMAGE_DEPTH)
 V.add(cam, outputs=['image'], threaded=True)
-
-#warmup camera
-while cam.run() is None:
-    time.sleep(1)
 
 #add tub part to record images
 tub = TubWriter(base_path='./dat', inputs=['image'], types=['image_array'])

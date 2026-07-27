@@ -593,15 +593,10 @@ def train_test_split(data_list: List[Any],
     target_train_size = int(len(data_list) * (1. - test_size))
 
     if shuffle:
-        train_data = []
-        i_sample = 0
-        while i_sample < target_train_size and len(data_list) > 1:
-            i_choice = random.randint(0, len(data_list) - 1)
-            train_data.append(data_list.pop(i_choice))
-            i_sample += 1
-
-        # remainder of the original list is the validation set
-        val_data = data_list
+        data_list = list(data_list)
+        random.shuffle(data_list)
+        train_data = data_list[:target_train_size]
+        val_data = data_list[target_train_size:]
 
     else:
         train_data = data_list[:target_train_size]

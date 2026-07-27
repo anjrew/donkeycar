@@ -23,16 +23,6 @@ class TeensyRCin:
 
         self.on = True
 
-    def map_range(self, x, X_min, X_max, Y_min, Y_max):
-        '''
-        Linear mapping between two ranges of values
-        '''
-        X_range = X_max - X_min
-        Y_range = Y_max - Y_min
-        XY_ratio = X_range/Y_range
-
-        return ((x-X_min) / XY_ratio + Y_min)
-
     def update(self):
         rcin_pattern = re.compile('^I +([.0-9]+) +([.0-9]+).*$')
 
@@ -52,7 +42,7 @@ class TeensyRCin:
                     else:
                         i = i / (1000.0 * 1000.0) # in seconds
                         i *= self.sensor.frequency * 4096.0
-                        self.inSteering = self.map_range(i,
+                        self.inSteering = dk.utils.map_frange(i,
                                                          TeensyRCin.LEFT_PULSE, TeensyRCin.RIGHT_PULSE,
                                                          TeensyRCin.LEFT_ANGLE, TeensyRCin.RIGHT_ANGLE)
 
@@ -62,7 +52,7 @@ class TeensyRCin:
                     else:
                         k = k / (1000.0 * 1000.0) # in seconds
                         k *= self.sensor.frequency * 4096.0
-                        self.inThrottle = self.map_range(k,
+                        self.inThrottle = dk.utils.map_frange(k,
                                                          TeensyRCin.MIN_PULSE, TeensyRCin.MAX_PULSE,
                                                          TeensyRCin.MIN_THROTTLE, TeensyRCin.MAX_THROTTLE)
 

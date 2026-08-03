@@ -113,6 +113,9 @@ def binary_to_img(binary):
         return None
 
 
+_RGB2GRAY_WEIGHTS = np.array([0.299, 0.587, 0.114], dtype=np.float32)
+
+
 def rgb2gray(rgb):
     """
     Convert normalized numpy image array with shape (w, h, 3) into greyscale
@@ -122,8 +125,9 @@ def rgb2gray(rgb):
     :return:        normalized [0,1] float32 numpy image array shape(w,h) or
                     [0,255] uint8 numpy array in grey scale
     """
-    # this will translate a uint8 array into a float64 one
-    grey = np.dot(rgb[..., :3], [0.299, 0.587, 0.114])
+    # using float32 weights (instead of python floats, which numpy upcasts
+    # to float64) keeps this in float32 and halves the per-frame allocation
+    grey = np.dot(rgb[..., :3], _RGB2GRAY_WEIGHTS)
     # transform back if the input is a uint8 array
     if rgb.dtype.type is np.uint8:
         grey = np.round(grey).astype(np.uint8)

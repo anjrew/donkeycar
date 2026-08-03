@@ -2,7 +2,7 @@
 from PIL import Image
 import numpy as np
 from donkeycar.utils import img_to_binary, binary_to_img, arr_to_img, \
-    img_to_arr, normalize_image
+    img_to_arr, normalize_image, rgb2gray
 
 
 class ImgArrToJpg():
@@ -39,8 +39,8 @@ class StereoPair:
         '''
         if image_a is not None and image_b is not None:
             width, height, _ = image_a.shape
-            grey_a = dk.utils.rgb2gray(image_a)
-            grey_b = dk.utils.rgb2gray(image_b)
+            grey_a = rgb2gray(image_a)
+            grey_b = rgb2gray(image_b)
             grey_c = grey_a - grey_b
             
             stereo_image = np.zeros([width, height, 3], dtype=np.dtype('B'))
@@ -85,16 +85,9 @@ class ImgStack:
         self.img_arr = None
         self.num_channels = num_channels
 
-    def rgb2gray(self, rgb):
-        '''
-        take a numpy rgb image return a new single channel image converted to
-        greyscale
-        '''
-        return np.dot(rgb[...,:3], [0.299, 0.587, 0.114])
-        
     def run(self, img_arr):
-        width, height, _ = img_arr.shape        
-        gray = self.rgb2gray(img_arr)
+        width, height, _ = img_arr.shape
+        gray = rgb2gray(img_arr)
         
         if self.img_arr is None:
             self.img_arr = np.zeros([width, height, self.num_channels], dtype=np.dtype('B'))

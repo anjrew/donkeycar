@@ -129,6 +129,26 @@ class TestMapRangeFloat(unittest.TestCase):
         assert 2.0 == map_range_float(100, 0, 100, 0, 2.0)
 
 
+class TestRgb2Gray(unittest.TestCase):
+
+    def test_uint8_dtype_and_rounding_preserved(self):
+        rgb = np.random.randint(0, 256, (8, 8, 3)).astype(np.uint8)
+        grey = rgb2gray(rgb)
+        assert grey.dtype == np.uint8
+        assert grey.shape == (8, 8)
+        expected = np.round(
+            np.dot(rgb[..., :3], [0.299, 0.587, 0.114])
+        ).astype(np.uint8)
+        assert np.array_equal(grey, expected)
+
+    def test_float32_input_stays_float32(self):
+        rgb = (np.random.randint(0, 256, (8, 8, 3)) / 255.0).astype(np.float32)
+        grey = rgb2gray(rgb)
+        assert grey.dtype == np.float32
+        expected = np.dot(rgb[..., :3], [0.299, 0.587, 0.114])
+        assert np.allclose(grey, expected, atol=1e-6)
+
+
 class TestMergeDicts(unittest.TestCase):
 
     def test_merge_two_dicts(self):

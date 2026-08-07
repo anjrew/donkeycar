@@ -4,5 +4,5 @@ tests:
 	pytest
 
 package:
-	python setup.py sdist
+	python -m build --sdist
 

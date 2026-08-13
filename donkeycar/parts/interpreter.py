@@ -257,7 +257,8 @@ class TfLite(Interpreter):
         self.interpreter = None
         self.runner = None
         self.signatures = None
-    
+        self._input_details = None
+
     def load(self, model_path):
         assert os.path.splitext(model_path)[1] == '.tflite', \
             'TFlitePilot should load only .tflite files'
@@ -268,6 +269,10 @@ class TfLite(Interpreter):
         self.runner = self.interpreter.get_signature_runner()
         self.input_keys = self.signatures['serving_default']['inputs']
         self.output_keys = self.signatures['serving_default']['outputs']
+        # input shapes are fixed once the model is loaded, so fetch them
+        # once here rather than on every get_input_shape() call, which
+        # output_shapes() (and hence run()) invokes on every inference
+        self._input_details = self.interpreter.get_input_details()
 
     def compile(self, **kwargs):
         pass
@@ -280,9 +285,9 @@ class TfLite(Interpreter):
         return ret if len(ret) > 1 else ret[0]
 
     def get_input_shape(self, input_name):
-        assert self.interpreter is not None, "Need to load tflite model first"
-        details = self.interpreter.get_input_details()
-        for detail in details:
+        assert self._input_details is not None, \
+            "Need to load tflite model first"
+        for detail in self._input_details:
             if detail['name'] == f"serving_default_{input_name}:0":
                 return detail['shape']
         raise RuntimeError(f'{input_name} not found in TFlite model')

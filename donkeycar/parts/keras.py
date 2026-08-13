@@ -235,9 +235,10 @@ class KerasPilot(ABC):
                                   f'pipeline')
 
     def output_types(self) -> Tuple[Dict[str, np.typename], ...]:
-        """ Used in tf.data, assume all types are doubles"""
+        """ Used in tf.data; float32 matches normalize_image() and the
+        model's Input/Dense layers, avoiding a silent upcast+downcast """
         shapes = self.output_shapes()
-        types = tuple({k: tf.float64 for k in d} for d in shapes)
+        types = tuple({k: tf.float32 for k in d} for d in shapes)
         return types
 
     def output_shapes(self) -> Dict[str, tf.TensorShape]:

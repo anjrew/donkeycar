@@ -309,6 +309,7 @@ class PWMSteering:
     def update(self):
         while self.running:
             self.controller.set_pulse(self.pulse)
+            time.sleep(0.01)
 
     def run_threaded(self, angle):
         # map absolute angle to angle that vehicle can implement.
@@ -364,6 +365,7 @@ class PWMThrottle:
     def update(self):
         while self.running:
             self.controller.set_pulse(self.pulse)
+            time.sleep(0.01)
 
     def run_threaded(self, throttle):
         throttle = utils.clamp(throttle, self.MIN_THROTTLE, self.MAX_THROTTLE)

@@ -159,6 +159,29 @@ def denormalize_image(img_arr_float):
     return (img_arr_float * 255.0).astype(np.uint8)
 
 
+def _open_resized_image(filename, image_width, image_height, image_depth):
+    """Opens an image from a file path, resizing and converting depth as
+    needed. Shared by load_pil_image() and load_image_sized() so resize/
+    grayscale handling only needs to be maintained in one place.
+
+    Args:
+        filename (string): path to the image file
+        image_width: width in pixels of the output image
+        image_height: height in pixels of the output image
+        image_depth: depth of the output image (1 for greyscale)
+
+    Returns: a PIL image.
+    """
+    img = Image.open(filename)
+    if img.height != image_height or img.width != image_width:
+        img = img.resize((image_width, image_height))
+
+    if image_depth == 1:
+        img = img.convert('L')
+
+    return img
+
+
 def load_pil_image(filename, cfg):
     """Loads an image from a file path as a PIL image. Also handles resizing.
 
@@ -169,17 +192,10 @@ def load_pil_image(filename, cfg):
     Returns: a PIL image.
     """
     try:
-        img = Image.open(filename)
-        if img.height != cfg.IMAGE_H or img.width != cfg.IMAGE_W:
-            img = img.resize((cfg.IMAGE_W, cfg.IMAGE_H))
-
-        if cfg.IMAGE_DEPTH == 1:
-            img = img.convert('L')
-        
-        return img
-
+        return _open_resized_image(filename, cfg.IMAGE_W, cfg.IMAGE_H,
+                                    cfg.IMAGE_DEPTH)
     except Exception as e:
-        logger.error(f'failed to load image from {filename}: {e.message}')
+        logger.error(f'failed to load image from {filename}: {e}')
         return None
 
 
@@ -195,7 +211,8 @@ def load_image(filename, cfg):
 
 
 def load_image_sized(filename, image_width, image_height, image_depth):
-    """Loads an image from a file path as a PIL image. Also handles resizing.
+    """Loads an image from a file path as a numpy array. Also handles
+    resizing.
 
     Args:
         filename (string): path to the image file
@@ -207,13 +224,8 @@ def load_image_sized(filename, image_width, image_height, image_depth):
         (np.ndarray):         numpy uint8 image array.
     """
     try:
-        img = Image.open(filename)
-        if img.height != image_height or img.width != image_width:
-            img = img.resize((image_width, image_height))
-
-        if image_depth == 1:
-            img = img.convert('L')
-
+        img = _open_resized_image(filename, image_width, image_height,
+                                   image_depth)
         img_arr = np.asarray(img)
 
         # If the PIL image is greyscale, the np array will have shape (H, W)
@@ -225,7 +237,7 @@ def load_image_sized(filename, image_width, image_height, image_depth):
         return img_arr
 
     except Exception as e:
-        logger.error(f'failed to load image from {filename}: {e.message}')
+        logger.error(f'failed to load image from {filename}: {e}')
         return None
 
 

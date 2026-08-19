@@ -142,6 +142,7 @@ class OLEDPart(object):
         # Run threaded loop by itself
         while self.on:
             self.update_slots()
+            time.sleep(0.1)
 
     def shutdown(self):
         self.oled.clear_display()

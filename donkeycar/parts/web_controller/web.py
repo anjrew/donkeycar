@@ -188,62 +188,46 @@ def _validate_tuning_patch(patch, current):
             reject("throttle_max", "would fall below throttle_min")
             clean.pop("throttle_max")
 
-    # Cross-key invariant: reverse <= stopped <= forward PWM
-    # Mirrors PWMThrottle: min_pulse (reverse) <= zero_pulse (stopped) <= max_pulse
-    # (forward).  Dragging reverse above stopped inverts the ESC mapping and can
-    # cause a negative throttle command to emit a forward pulse.
-    _def = current  # shorthand
-    new_rev = clean.get("throttle_reverse_pwm", _def.get("throttle_reverse_pwm", 0))
-    new_stp = clean.get("throttle_stopped_pwm", _def.get("throttle_stopped_pwm", 0))
-    new_fwd = clean.get("throttle_forward_pwm", _def.get("throttle_forward_pwm", 0))
-    if new_rev > new_stp:
-        if "throttle_reverse_pwm" in clean:
-            reject(
-                "throttle_reverse_pwm",
-                "would exceed throttle_stopped_pwm — reverse must be <= stopped",
-            )
-            clean.pop("throttle_reverse_pwm")
-        if "throttle_stopped_pwm" in clean:
-            reject(
-                "throttle_stopped_pwm",
-                "would fall below throttle_reverse_pwm — stopped must be >= reverse",
-            )
-            clean.pop("throttle_stopped_pwm")
-        # Refresh new_stp in case we just popped it.
-        new_stp = clean.get("throttle_stopped_pwm", _def.get("throttle_stopped_pwm", 0))
-    if new_stp > new_fwd:
-        if "throttle_stopped_pwm" in clean:
-            reject(
-                "throttle_stopped_pwm",
-                "would exceed throttle_forward_pwm — stopped must be <= forward",
-            )
-            clean.pop("throttle_stopped_pwm")
-        if "throttle_forward_pwm" in clean:
-            reject(
-                "throttle_forward_pwm",
-                "would fall below throttle_stopped_pwm — forward must be >= stopped",
-            )
-            clean.pop("throttle_forward_pwm")
+    # Cross-key invariant: throttle_forward_pwm > throttle_stopped_pwm
+    #   > throttle_reverse_pwm.
+    # A PCA9685 duty-cycle value is a raw count: higher = longer pulse.
+    # Forward motion requires a longer pulse than stopped; reverse requires a
+    # shorter pulse.  If these are inverted the ESC will receive a forward
+    # command on a reverse input (and vice-versa), which is a safety hazard.
+    # Equality is rejected too: forward == stopped means a full-throttle
+    # command emits the neutral pulse (and stopped == reverse likewise
+    # collapses the reverse range), so the slider silently does nothing.
+    new_fwd = clean.get("throttle_forward_pwm", current.get("throttle_forward_pwm", 0))
+    new_stop = clean.get("throttle_stopped_pwm", current.get("throttle_stopped_pwm", 0))
+    new_rev = clean.get("throttle_reverse_pwm", current.get("throttle_reverse_pwm", 0))
+    if not (new_fwd > new_stop > new_rev):
+        # Reject whichever keys from the patch contributed to the violation.
+        for key in (
+            "throttle_forward_pwm",
+            "throttle_stopped_pwm",
+            "throttle_reverse_pwm",
+        ):
+            if key in clean:
+                reject(
+                    key,
+                    "throttle PWM ordering violated: "
+                    "forward_pwm must be > stopped_pwm > reverse_pwm",
+                )
+                clean.pop(key)
 
-    # Cross-key invariant: steering_left_pwm != steering_right_pwm
-    # Equal endpoints collapse the steering range to zero (no steering response).
-    # We cannot enforce a direction (left > right or left < right) because servo
-    # orientation varies by installation, so we only guard against equality.
-    new_l = clean.get("steering_left_pwm", _def.get("steering_left_pwm", 0))
-    new_r = clean.get("steering_right_pwm", _def.get("steering_right_pwm", 0))
-    if new_l == new_r:
-        if "steering_left_pwm" in clean:
-            reject(
-                "steering_left_pwm",
-                "would equal steering_right_pwm — endpoints must differ",
-            )
-            clean.pop("steering_left_pwm")
-        if "steering_right_pwm" in clean:
-            reject(
-                "steering_right_pwm",
-                "would equal steering_left_pwm — endpoints must differ",
-            )
-            clean.pop("steering_right_pwm")
+    # Cross-key invariant: steering_left_pwm != steering_right_pwm.
+    # Equal endpoints collapse the steering range to zero, so the servo
+    # receives the same pulse for full-left and full-right and steering
+    # becomes a no-op.  We cannot enforce a direction (left > right or
+    # left < right) because servo orientation varies by installation, so
+    # we only guard against equality.
+    new_left = clean.get("steering_left_pwm", current.get("steering_left_pwm", 0))
+    new_right = clean.get("steering_right_pwm", current.get("steering_right_pwm", 0))
+    if new_left == new_right:
+        for key in ("steering_left_pwm", "steering_right_pwm"):
+            if key in clean:
+                reject(key, "steering_left_pwm must differ from steering_right_pwm")
+                clean.pop(key)
 
     return clean, rejections
 
@@ -362,14 +346,28 @@ def _parse_myconfig_snippet(text):
       - `"NAME": value,` dict-entry lines, commented (`#  "NAME": ...`) or not,
       - inline trailing comments (`NAME = value  # note`),
       - tuples/lists for the HSV keys.
+    Commented-out plain assignment lines (`# NAME = value`) are skipped so
+    that pasting a full myconfig.py does not silently apply disabled defaults.
     Names we don't recognize are ignored, so the snippet block can sit inside a
     larger myconfig.py. Returns a patch dict suitable for apply_tuning_patch.
     """
+    # Matches `"NAME": value` dict-entry lines (quoted key + colon) after the
+    # leading `#` is removed.  Plain commented assignment lines (`# NAME = val`)
+    # are intentionally NOT matched here so they are skipped rather than applied.
+    _dict_entry_re = re.compile(r'^\s*"[A-Z_][A-Z0-9_]*"\s*:')
+
     patch = {}
     for line in (text or "").splitlines():
         line = line.strip()
         if line.startswith("#"):
-            line = line.lstrip("#").strip()
+            # Only un-comment PWM-block dict-entry lines emitted by the
+            # renderer (`#   "KEY": value,`).  Plain commented config
+            # assignments (`# KEY = value`) must be skipped, not applied.
+            candidate = line.lstrip("#").strip()
+            if _dict_entry_re.match(candidate):
+                line = candidate
+            else:
+                continue
         # Drop an inline trailing comment (e.g. `COLOR_THRESHOLD_LOW = (0, 50,
         # 50)  # HSV dark yellow`). The values we accept — numbers, int tuples,
         # and the mode string — never legitimately contain a '#', so splitting

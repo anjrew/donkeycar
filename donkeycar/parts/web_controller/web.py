@@ -188,6 +188,41 @@ def _validate_tuning_patch(patch, current):
             reject("throttle_max", "would fall below throttle_min")
             clean.pop("throttle_max")
 
+    # Cross-key invariant: throttle_forward_pwm > throttle_stopped_pwm
+    #   > throttle_reverse_pwm.
+    # A PCA9685 duty-cycle value is a raw count: higher = longer pulse.
+    # Forward motion requires a longer pulse than stopped; reverse requires a
+    # shorter pulse.  If these are inverted the ESC will receive a forward
+    # command on a reverse input (and vice-versa), which is a safety hazard.
+    new_fwd = clean.get("throttle_forward_pwm", current.get("throttle_forward_pwm", 0))
+    new_stop = clean.get("throttle_stopped_pwm", current.get("throttle_stopped_pwm", 0))
+    new_rev = clean.get("throttle_reverse_pwm", current.get("throttle_reverse_pwm", 0))
+    if not (new_fwd > new_stop > new_rev):
+        # Reject whichever keys from the patch contributed to the violation.
+        for key in (
+            "throttle_forward_pwm",
+            "throttle_stopped_pwm",
+            "throttle_reverse_pwm",
+        ):
+            if key in clean:
+                reject(
+                    key,
+                    "throttle PWM ordering violated: "
+                    "forward_pwm must be > stopped_pwm > reverse_pwm",
+                )
+                clean.pop(key)
+
+    # Cross-key invariant: steering_left_pwm != steering_right_pwm.
+    # Equal values mean the servo receives the same pulse for full-left and
+    # full-right, so steering becomes a no-op.
+    new_left = clean.get("steering_left_pwm", current.get("steering_left_pwm", 0))
+    new_right = clean.get("steering_right_pwm", current.get("steering_right_pwm", 0))
+    if new_left == new_right:
+        for key in ("steering_left_pwm", "steering_right_pwm"):
+            if key in clean:
+                reject(key, "steering_left_pwm must differ from steering_right_pwm")
+                clean.pop(key)
+
     return clean, rejections
 
 

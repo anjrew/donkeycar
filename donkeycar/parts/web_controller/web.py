@@ -930,8 +930,10 @@ class VideoAPI(RequestHandler):
                 img_arr = getattr(self.application, "img_arr", None)
                 if img_arr is not None:
                     if id(img_arr) == last_img_arr_id:
-                        # same frame as last time, nothing new to serve yet
-                        served_image_timestamp = time.time()
+                        # same frame as last time, nothing new to serve yet.
+                        # Leave served_image_timestamp untouched so the next
+                        # loop iteration re-checks immediately after this
+                        # sleep instead of waiting a second interval.
                         await tornado.gen.sleep(interval)
                         continue
                     img = utils.arr_to_binary(img_arr)

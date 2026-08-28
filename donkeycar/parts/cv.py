@@ -642,7 +642,7 @@ class CvCam(object):
         if self.cap.isOpened():
             _, self.frame = self.cap.read()
             if self.frame is not None:
-                width, height = self.frame.shape[:2]
+                height, width = self.frame.shape[:2]
                 if width != self.width or height != self.height:
                     self.frame = cv2.resize(self.frame, (self.width, self.height))
 

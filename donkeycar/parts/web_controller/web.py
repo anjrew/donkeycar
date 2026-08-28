@@ -910,6 +910,7 @@ class VideoAPI(RequestHandler):
             120,
             3,
         )
+        placeholder_bin = utils.arr_to_binary(placeholder_image)
 
         self.set_header(
             "Content-type", "multipart/x-mixed-replace;boundary=--boundarydonotcross"
@@ -917,21 +918,28 @@ class VideoAPI(RequestHandler):
 
         served_image_timestamp = time.time()
         my_boundary = "--boundarydonotcross\n"
+        last_img_arr_id = None
         while True:
 
             interval = 0.005
             if served_image_timestamp + interval < time.time():
                 #
-                # if we have an image, then use it.
+                # if we have a new image, encode and use it.
                 # otherwise show placeholder
                 #
-                if (
-                    hasattr(self.application, "img_arr")
-                    and self.application.img_arr is not None
-                ):
-                    img = utils.arr_to_binary(self.application.img_arr)
+                img_arr = getattr(self.application, "img_arr", None)
+                if img_arr is not None:
+                    if id(img_arr) == last_img_arr_id:
+                        # same frame as last time, nothing new to serve yet.
+                        # Leave served_image_timestamp untouched so the next
+                        # loop iteration re-checks immediately after this
+                        # sleep instead of waiting a second interval.
+                        await tornado.gen.sleep(interval)
+                        continue
+                    img = utils.arr_to_binary(img_arr)
+                    last_img_arr_id = id(img_arr)
                 else:
-                    img = utils.arr_to_binary(placeholder_image)
+                    img = placeholder_bin
 
                 self.write(my_boundary)
                 self.write("Content-type: image/jpeg\r\n")

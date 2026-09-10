@@ -653,6 +653,58 @@ var driveHandler = new function() {
         });
         console.log('[tuning] bound', numBound, 'numeric inputs');
 
+        // PWM endpoint sliders constrain each other in the UI the same way
+        // _validate_tuning_patch does server-side (forward > stopped >
+        // reverse), so an out-of-order value can't be dialed in at all.
+        // Steering endpoints have installation-dependent direction — only
+        // left==right is invalid, which min/max attributes can't express,
+        // so that one is flagged visually (has-error) with the server
+        // rejection as the hard backstop.
+        var PWM_ABS_MIN = 0, PWM_ABS_MAX = 4095;
+        function pwmWindow(key) {
+            var fwd = parseInt($('#tune_throttle_forward_pwm').val(), 10);
+            var stp = parseInt($('#tune_throttle_stopped_pwm').val(), 10);
+            var rev = parseInt($('#tune_throttle_reverse_pwm').val(), 10);
+            if (isNaN(fwd)) fwd = PWM_ABS_MAX;
+            if (isNaN(rev)) rev = PWM_ABS_MIN;
+            if (isNaN(stp)) stp = Math.round((PWM_ABS_MIN + PWM_ABS_MAX) / 2);
+            if (key === 'throttle_forward_pwm') return [stp + 1, PWM_ABS_MAX];
+            if (key === 'throttle_reverse_pwm') return [PWM_ABS_MIN, stp - 1];
+            return [rev + 1, fwd - 1]; // throttle_stopped_pwm
+        }
+        function syncPwmSliderBounds() {
+            ['throttle_forward_pwm', 'throttle_stopped_pwm', 'throttle_reverse_pwm'].forEach(function (key) {
+                var w = pwmWindow(key);
+                $('#tune_' + key).attr('min', w[0]).attr('max', w[1]);
+            });
+            var l = parseInt($('#tune_steering_left_pwm').val(), 10);
+            var r = parseInt($('#tune_steering_right_pwm').val(), 10);
+            var clash = !isNaN(l) && !isNaN(r) && l === r;
+            $('#tune_steering_left_pwm, #tune_steering_right_pwm')
+                .closest('.form-group').toggleClass('has-error', clash);
+        }
+        ['throttle_forward_pwm', 'throttle_stopped_pwm', 'throttle_reverse_pwm'].forEach(function (key) {
+            $('#tune_' + key).on('input', function () {
+                var w = pwmWindow(key);
+                var v = parseInt(this.value, 10);
+                if (isNaN(v)) return;
+                if (v < w[0] || v > w[1]) {
+                    v = Math.max(w[0], Math.min(v, w[1]));
+                    this.value = v;
+                    tuningState[key] = v;
+                    var corrective = {};
+                    corrective[key] = v;
+                    sendNumDebounced(corrective);
+                }
+                syncPwmSliderBounds();
+            });
+            $('#tune_' + key).on('change', syncPwmSliderBounds);
+        });
+        ['steering_left_pwm', 'steering_right_pwm'].forEach(function (key) {
+            $('#tune_' + key).on('input change', syncPwmSliderBounds);
+        });
+        syncPwmSliderBounds();
+
         // Mode selector radios — send the chosen mode and locally apply
         // visibility immediately. Server will broadcast back the snapshot
         // for any other connected client, but our own paint is suppressed
